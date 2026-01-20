@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "types": ["jest"],
+    "checkJs": true
+  },
+  "include": ["**/*.js"]
+}
