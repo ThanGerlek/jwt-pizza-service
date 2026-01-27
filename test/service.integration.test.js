@@ -15,7 +15,6 @@ jest.mock("jsonwebtoken", () => ({
 
 const request = require("supertest");
 const app = require("../src/service");
-const { StatusCodeError } = require("../src/endpointHelper");
 
 describe("Service Integration Tests - Edge Cases", () => {
   beforeEach(() => {

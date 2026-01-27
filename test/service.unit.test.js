@@ -19,7 +19,6 @@ jest.mock("../src/database/database.js", () => ({
   },
 }));
 
-const { Role } = require("../src/database/database.js");
 // Reimplement helper functions locally to avoid importing DB instance
 const getOffset = (currentPage = 1, listPerPage) =>
   (currentPage - 1) * listPerPage;

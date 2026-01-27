@@ -20,7 +20,7 @@ jest.mock("jsonwebtoken", () => ({
 
 const request = require("supertest");
 const app = require("../src/service");
-const { DB, Role } = require("../src/database/database.js");
+const { DB } = require("../src/database/database.js");
 const jwt = require("jsonwebtoken");
 
 describe("Franchise Router Integration Tests", () => {
