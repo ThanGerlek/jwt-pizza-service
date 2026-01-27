@@ -19,7 +19,7 @@ Key source files and responsibilities
 - src/service.js
   - Express app setup, JSON body parsing, CORS headers, global auth middleware (setAuthUser), mounts API routers under /api, exposes /api/docs and root endpoint, 404 handler and error handler.
 
-- src/routes/*
+- src/routes/\*
   - authRouter.js: register/login/logout flow, JWT creation/verification, setAuthUser middleware exported for global use; uses DB to validate tokens, DB.loginUser/logoutUser; provides docs array describing endpoints.
   - userRouter.js: get authenticated user (/me), update user, placeholders for delete/list; uses setAuth to re-issue token on update.
   - orderRouter.js: menu CRUD (admin-protected), list user orders, create order which writes to DB and posts to factory API; uses config.factory and fetch.
@@ -79,7 +79,7 @@ Agent guidance for editing
 Useful entry points for agents
 
 - src/service.js — to mount routers and run app in tests via supertest.
-- src/routes/*.js — routers implement endpoints and contain docs arrays useful for generating test cases.
+- src/routes/\*.js — routers implement endpoints and contain docs arrays useful for generating test cases.
 - src/database/database.js — core logic for persistent operations and a place to add mocks or refactor.
 
 Summary
