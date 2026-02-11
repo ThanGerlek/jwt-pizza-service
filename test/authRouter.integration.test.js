@@ -1,37 +1,9 @@
-// Prevent DB initialization during tests by mocking before importing app
-jest.mock("../src/database/database.js", () => ({
-  Role: { Diner: "diner" },
-  DB: {
-    isLoggedIn: jest.fn(),
-    addUser: jest.fn(),
-    getUser: jest.fn(),
-    loginUser: jest.fn(),
-    logoutUser: jest.fn(),
-  },
-}));
-
-// Mock jsonwebtoken so tokens are deterministic
-jest.mock("jsonwebtoken", () => ({
-  sign: jest.fn(() => "tok.sig.sgn"),
-  verify: jest.fn(() => ({
-    id: 2,
-    name: "pizza diner",
-    email: "x@test.com",
-    roles: [{ role: "diner" }],
-  })),
-}));
-
-const request = require("supertest");
-const app = require("../src/service");
-const { DB } = require("../src/database/database.js");
+const { setupMocks } = require("./test_utils/mocked_imports");
+const { request, app, DB } = setupMocks();
 
 describe("auth routes", () => {
   beforeEach(() => {
-    DB.isLoggedIn.mockReset();
-    DB.addUser.mockReset();
-    DB.getUser.mockReset();
-    DB.loginUser.mockReset();
-    DB.logoutUser.mockReset();
+    jest.clearAllMocks();
   });
 
   test("register POST /api/auth returns user and token", async () => {

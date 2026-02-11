@@ -1,39 +1,12 @@
-// Mock database and JWT before importing app
-jest.mock("../src/database/database.js", () => ({
-  Role: { Diner: "diner", Admin: "admin" },
-  DB: {
-    getMenu: jest.fn(),
-    addMenuItem: jest.fn(),
-    getOrders: jest.fn(),
-    addDinerOrder: jest.fn(),
-    isLoggedIn: jest.fn(),
-  },
-}));
+const { setupMocks } = require("./test_utils/mocked_imports");
+const { request, app, DB } = setupMocks();
 
-jest.mock("jsonwebtoken", () => ({
-  sign: jest.fn(() => "tok.sig.sgn"),
-  verify: jest.fn(),
-}));
-
-const request = require("supertest");
-const app = require("../src/service");
-const { DB } = require("../src/database/database.js");
-
-const buildMocks = require("./test_utils");
-const {
-  mockLoginAsAdmin,
-  mockLoginAsDiner,
-  mockUserDiner,
-} = buildMocks(DB);
-
+const buildMocks = require("./test_utils/test_utils");
+const { mockLoginAsAdmin, mockLoginAsDiner, mockUserDiner } = buildMocks(DB);
 
 describe("Order Router Integration Tests", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // Clean up any previous fetch mocks
-    if (global.fetch && global.fetch.mockRestore) {
-      global.fetch.mockRestore();
-    }
   });
 
   // ====================================================================

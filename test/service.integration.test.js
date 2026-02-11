@@ -1,20 +1,5 @@
-// Mock database before importing app
-jest.mock("../src/database/database.js", () => ({
-  Role: { Diner: "diner", Admin: "admin" },
-  DB: {
-    isLoggedIn: jest.fn(),
-    getMenu: jest.fn(),
-    addMenuItem: jest.fn(),
-  },
-}));
-
-jest.mock("jsonwebtoken", () => ({
-  sign: jest.fn(() => "tok.sig.sgn"),
-  verify: jest.fn(),
-}));
-
-const request = require("supertest");
-const app = require("../src/service");
+const { setupMocks } = require("./test_utils/mocked_imports");
+const { request, app } = setupMocks();
 
 describe("Service Integration Tests - Edge Cases", () => {
   beforeEach(() => {
