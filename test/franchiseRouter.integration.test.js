@@ -1,5 +1,5 @@
 const { setupMocks } = require("./test_utils/mocked_imports");
-const { request, app, DB } = setupMocks();
+const { request, app, DB, jwt } = setupMocks();
 
 const buildMocks = require("./test_utils/test_utils");
 const {
@@ -7,7 +7,7 @@ const {
   mockLoginAsFranchisee,
   mockLoginAsDiner,
   mockUserFranchisee,
-} = buildMocks(DB);
+} = buildMocks(DB, jwt);
 
 
 describe("Franchise Router Integration Tests", () => {

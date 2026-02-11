@@ -1,8 +1,9 @@
 const { setupMocks } = require("./test_utils/mocked_imports");
-const { request, app, DB } = setupMocks();
+const { request, app, DB, jwt } = setupMocks();
+const nock = require('nock');
 
 const buildMocks = require("./test_utils/test_utils");
-const { mockLoginAsAdmin, mockLoginAsDiner, mockUserDiner } = buildMocks(DB);
+const { mockLoginAsAdmin, mockLoginAsDiner, mockUserDiner } = buildMocks(DB, jwt);
 
 describe("Order Router Integration Tests", () => {
   beforeEach(() => {
@@ -144,6 +145,30 @@ describe("Order Router Integration Tests", () => {
   // POST /api/order - Create order
   // ====================================================================
   describe("POST /api/order", () => {
+    test("returns success ", async () => {
+      mockLoginAsDiner();
+      
+      const orderReq = {
+        franchiseId: 11,
+        storeId: 101,
+        items: [{ menuId: 2, description: "Pepperoni", price: 0.0038 }],
+      };
+      const mockPizzaFactoryResponse = { order: {...orderReq, id: 5} };
+
+      DB.addDinerOrder.mockResolvedValueOnce(mockPizzaFactoryResponse.order);
+      nock('https://pizza-factory.cs329.click')
+        .post('/api/order')
+        .reply(200, mockPizzaFactoryResponse);
+
+      const res = await request(app)
+        .post("/api/order")
+        .set("Authorization", "Bearer tok.sig.sgn")
+        .send(orderReq);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject(mockPizzaFactoryResponse);
+    });
+
     test("returns 401 without auth token", async () => {
       const orderReq = {
         franchiseId: 1,
