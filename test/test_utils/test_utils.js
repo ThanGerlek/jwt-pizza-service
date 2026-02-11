@@ -1,5 +1,3 @@
-const jwt = require("jsonwebtoken");
-
 const mockUserAdmin = {
   id: 1,
   name: "Admin",
@@ -19,19 +17,19 @@ const mockUserDiner = {
   roles: [{ role: "diner" }],
 }
 
-function getMockLoginAsFunc(db, mockUser) {
-  return () => {
-    db.isLoggedIn.mockResolvedValueOnce(true);
-    jwt.verify.mockReturnValueOnce(mockUser);
-    return mockUser;
+function buildMocks(db, jwt) {
+  function getMockLoginAsFunc(mockUser) {
+    return () => {
+      db.isLoggedIn.mockResolvedValueOnce(true);
+      jwt.verify.mockReturnValueOnce(mockUser);
+      return mockUser;
+    }
   }
-}
 
-function buildMocks(db) {
   return {
-    mockLoginAsAdmin: getMockLoginAsFunc(db, mockUserAdmin),
-    mockLoginAsFranchisee: getMockLoginAsFunc(db, mockUserFranchisee),
-    mockLoginAsDiner: getMockLoginAsFunc(db, mockUserDiner),
+    mockLoginAsAdmin: getMockLoginAsFunc(mockUserAdmin),
+    mockLoginAsFranchisee: getMockLoginAsFunc(mockUserFranchisee),
+    mockLoginAsDiner: getMockLoginAsFunc(mockUserDiner),
     mockUserAdmin,
     mockUserFranchisee,
     mockUserDiner
