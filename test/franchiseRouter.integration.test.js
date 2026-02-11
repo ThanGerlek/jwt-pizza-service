@@ -21,39 +21,14 @@ jest.mock("jsonwebtoken", () => ({
 const request = require("supertest");
 const app = require("../src/service");
 const { DB } = require("../src/database/database.js");
-const jwt = require("jsonwebtoken");
 
-
-const mockUserAdmin = {
-  id: 1,
-  name: "Admin",
-  email: "admin@test.com",
-  roles: [{ role: "admin" }],
-};
-const mockUserFranchisee = {
-  id: 2,
-  name: "Franchisee",
-  email: "franchisee@test.com",
-  roles: [{ role: "franchisee", objectId: 11 }],
-};
-const mockUserDiner = {
-  id: 3,
-  name: "Diner",
-  email: "diner@test.com",
-  roles: [{ role: "diner" }],
-}
-
-function getMockLoginAsFunc(mockUser) {
-  return () => {
-    DB.isLoggedIn.mockResolvedValueOnce(true);
-    jwt.verify.mockReturnValueOnce(mockUser);
-    return mockUser;
-  }
-}
-
-const mockLoginAsAdmin = getMockLoginAsFunc(mockUserAdmin);
-const mockLoginAsFranchisee = getMockLoginAsFunc(mockUserFranchisee);
-const mockLoginAsDiner = getMockLoginAsFunc(mockUserDiner);
+const buildMocks = require("./test_utils");
+const {
+  mockLoginAsAdmin,
+  mockLoginAsFranchisee,
+  mockLoginAsDiner,
+  mockUserFranchisee,
+} = buildMocks(DB);
 
 
 describe("Franchise Router Integration Tests", () => {
