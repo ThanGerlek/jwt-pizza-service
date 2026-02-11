@@ -24,6 +24,36 @@ const { DB } = require("../src/database/database.js");
 const jwt = require("jsonwebtoken");
 
 
+const mockUserAdmin = {
+  id: 1,
+  name: "Admin",
+  email: "admin@test.com",
+  roles: [{ role: "admin" }],
+};
+const mockUserFranchisee = {
+  id: 2,
+  name: "Franchisee",
+  email: "franchisee@test.com",
+  roles: [{ role: "franchisee", objectId: 11 }],
+};
+const mockUserDiner = {
+  id: 3,
+  name: "Diner",
+  email: "diner@test.com",
+  roles: [{ role: "diner" }],
+}
+
+function getMockLoginAsFunc(mockUser) {
+  return () => {
+    DB.isLoggedIn.mockResolvedValueOnce(true);
+    jwt.verify.mockReturnValueOnce(mockUser);
+    return mockUser;
+  }
+}
+
+const mockLoginAsAdmin = getMockLoginAsFunc(mockUserAdmin);
+const mockLoginAsFranchisee = getMockLoginAsFunc(mockUserFranchisee);
+const mockLoginAsDiner = getMockLoginAsFunc(mockUserDiner);
 
 
 describe("Franchise Router Integration Tests", () => {
@@ -38,8 +68,8 @@ describe("Franchise Router Integration Tests", () => {
   describe("GET /api/franchise", () => {
 
     const mockFranchises = [
-      { id: 1, name: "pizzaPocket", stores: [{ id: 1, name: "SLC" }] },
-      { id: 2, name: "pizzaHut", stores: [{ id: 2, name: "NYC" }] },
+      { id: 11, name: "pizzaPocket", stores: [{ id: 101, name: "SLC" }] },
+      { id: 12, name: "pizzaHut", stores: [{ id: 102, name: "NYC" }] },
     ];
 
     test("returns franchises with pagination", async () => {
@@ -67,24 +97,18 @@ describe("Franchise Router Integration Tests", () => {
   // GET /api/franchise/:userId - Get user's franchises
   // ====================================================================
   describe("GET /api/franchise/:userId", () => {
+
     const mockFranchises = [
-      { id: 1, name: "pizzaPocket", stores: [], admins: [] },
-      { id: 2, name: "pizzaHut", stores: [], admins: [] },
+      { id: 11, name: "pizzaPocket", stores: [], admins: [] },
+      { id: 12, name: "pizzaHut", stores: [], admins: [] },
     ];
 
     test("user can view their own franchises", async () => {
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 5,
-        name: "Test User",
-        email: "test@test.com",
-        roles: [{ role: "franchisee" }],
-      });
-
+      const userData = mockLoginAsFranchisee();
       DB.getUserFranchises.mockResolvedValueOnce(mockFranchises);
 
       const res = await request(app)
-        .get("/api/franchise/5")  // TODO ??
+        .get(`/api/franchise/${userData.id}`)
         .set("Authorization", "Bearer tok.sig.sgn");
 
       expect(res.status).toBe(200);
@@ -93,18 +117,11 @@ describe("Franchise Router Integration Tests", () => {
 
     test("admin can view any user's franchises", async () => {
       // TODO Is this identical to the above?
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 1,
-        name: "Admin",
-        email: "admin@test.com",
-        roles: [{ role: "admin" }],
-      });
-
+      const userData = mockLoginAsAdmin();
       DB.getUserFranchises.mockResolvedValueOnce(mockFranchises);
 
       const res = await request(app)
-        .get("/api/franchise/10")
+        .get(`/api/franchise/${userData.id}`)
         .set("Authorization", "Bearer tok.sig.sgn");
 
       expect(res.status).toBe(200);
@@ -112,16 +129,12 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("returns empty array when not authorized", async () => {
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 5,
-        name: "Test User",
-        email: "test@test.com",
-        roles: [{ role: "diner" }],
-      });
-
+      const userData = mockLoginAsDiner();
+      const wrongUserId = userData.id + 1;
+      DB.getUserFranchises.mockResolvedValueOnce(mockFranchises);  // Should not be returned
+      
       const res = await request(app)
-        .get("/api/franchise/10")
+        .get(`/api/franchise/${wrongUserId}`)
         .set("Authorization", "Bearer tok.sig.sgn");
 
       expect(res.status).toBe(200);
@@ -140,17 +153,11 @@ describe("Franchise Router Integration Tests", () => {
   // ====================================================================
   describe("POST /api/franchise", () => {
     test("admin creates franchise successfully", async () => {
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 1,
-        name: "Admin",
-        email: "admin@test.com",
-        roles: [{ role: "admin" }],
-      });
+      const userData = mockLoginAsAdmin();
 
       const newFranchise = {
         name: "pizzaPocket",
-        admins: [{ email: "f@test.com" }],
+        admins: [{ email: userData.email }],
       };
       const createdFranchise = {
         id: 5,
@@ -170,13 +177,7 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("returns 403 for non-admin", async () => {
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 5,
-        name: "Diner",
-        email: "diner@test.com",
-        roles: [{ role: "diner" }],
-      });
+      mockLoginAsDiner();
 
       const res = await request(app)
         .post("/api/franchise")
@@ -218,28 +219,21 @@ describe("Franchise Router Integration Tests", () => {
   describe("POST /api/franchise/:franchiseId/store", () => {
 
     const mockFranchise = {
-      id: 5,
+      id: 11,
       name: "pizzaPocket",
-      admins: [{ id: 10, name: "Franchisee", email: "f@test.com" }],
+      admins: [mockUserFranchisee],
     };
+    const newStore = { name: "SLC" };
+    const createdStore = { id: 101, franchiseId: mockFranchise.id, name: "SLC" };
 
     test("admin creates store successfully", async () => {
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 1,
-        name: "Admin",
-        email: "admin@test.com",
-        roles: [{ role: "admin" }],
-      });
-
-      const newStore = { name: "SLC" };
-      const createdStore = { id: 1, franchiseId: 5, name: "SLC" };
+      mockLoginAsAdmin();
 
       DB.getFranchise.mockResolvedValueOnce(mockFranchise);
       DB.createStore.mockResolvedValueOnce(createdStore);
 
       const res = await request(app)
-        .post("/api/franchise/5/store")
+        .post(`/api/franchise/${mockFranchise.id}/store`)
         .set("Authorization", "Bearer tok.sig.sgn")
         .send(newStore);
 
@@ -248,22 +242,13 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("franchisee creates store for their franchise", async () => {
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 10,
-        name: "Franchisee",
-        email: "f@test.com",
-        roles: [{ role: "franchisee", objectId: 5 }],
-      });
-
-      const newStore = { name: "NYC" };
-      const createdStore = { id: 2, franchiseId: 5, name: "NYC" };
+      mockLoginAsFranchisee();
 
       DB.getFranchise.mockResolvedValueOnce(mockFranchise);
       DB.createStore.mockResolvedValueOnce(createdStore);
 
       const res = await request(app)
-        .post("/api/franchise/5/store")
+        .post(`/api/franchise/${mockFranchise.id}/store`)
         .set("Authorization", "Bearer tok.sig.sgn")
         .send(newStore);
 
@@ -272,18 +257,26 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("returns 403 when not admin or franchise owner", async () => {
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 20,
-        name: "Other User",
-        email: "other@test.com",
-        roles: [{ role: "diner" }],
-      });
+      mockLoginAsDiner();
 
       DB.getFranchise.mockResolvedValueOnce(mockFranchise);
 
       const res = await request(app)
-        .post("/api/franchise/5/store")
+        .post(`/api/franchise/${mockFranchise.id}/store`)
+        .set("Authorization", "Bearer tok.sig.sgn")
+        .send({ name: "Store" });
+
+      expect(res.status).toBe(403);
+    });
+
+    test("returns 403 when franchisee of a different franchise", async () => {
+      mockLoginAsFranchisee();
+
+      const otherMockFranchise = {...mockFranchise, admins: []}
+      DB.getFranchise.mockResolvedValueOnce(otherMockFranchise);
+
+      const res = await request(app)
+        .post(`/api/franchise/${otherMockFranchise.id}/store`)
         .set("Authorization", "Bearer tok.sig.sgn")
         .send({ name: "Store" });
 
@@ -305,25 +298,21 @@ describe("Franchise Router Integration Tests", () => {
   describe("DELETE /api/franchise/:franchiseId/store/:storeId", () => {
 
     const mockFranchise = {
-      id: 5,
+      id: 11,
       name: "pizzaPocket",
-      admins: [{ id: 10, name: "Franchisee", email: "f@test.com" }],
+      admins: [mockUserFranchisee],
     };
 
+    const mockStore = {id: 101};
+
     test("admin deletes store successfully", async () => {
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 1,
-        name: "Admin",
-        email: "admin@test.com",
-        roles: [{ role: "admin" }],
-      });
+      mockLoginAsAdmin();
 
       DB.getFranchise.mockResolvedValueOnce(mockFranchise);
       DB.deleteStore.mockResolvedValueOnce();
 
       const res = await request(app)
-        .delete("/api/franchise/5/store/1")
+        .delete(`/api/franchise/${mockFranchise.id}/store/${mockStore.id}`)
         .set("Authorization", "Bearer tok.sig.sgn");
 
       expect(res.status).toBe(200);
@@ -331,19 +320,13 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("franchisee deletes store from their franchise", async () => {
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 10,
-        name: "Franchisee",
-        email: "f@test.com",
-        roles: [{ role: "franchisee", objectId: 5 }],
-      });
+      mockLoginAsFranchisee();
 
       DB.getFranchise.mockResolvedValueOnce(mockFranchise);
       DB.deleteStore.mockResolvedValueOnce();
 
       const res = await request(app)
-        .delete("/api/franchise/5/store/2")
+        .delete(`/api/franchise/${mockFranchise.id}/store/${mockStore.id}`)
         .set("Authorization", "Bearer tok.sig.sgn");
 
       expect(res.status).toBe(200);
@@ -351,25 +334,19 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("returns 403 when not authorized", async () => {
-      DB.isLoggedIn.mockResolvedValueOnce(true);
-      jwt.verify.mockReturnValueOnce({
-        id: 20,
-        name: "Other User",
-        email: "other@test.com",
-        roles: [{ role: "diner" }],
-      });
+      mockLoginAsDiner();
 
       DB.getFranchise.mockResolvedValueOnce(mockFranchise);
 
       const res = await request(app)
-        .delete("/api/franchise/5/store/1")
+        .delete(`/api/franchise/${mockFranchise.id}/store/${mockStore.id}`)
         .set("Authorization", "Bearer tok.sig.sgn");
 
       expect(res.status).toBe(403);
     });
 
     test("returns 401 without auth token", async () => {
-      const res = await request(app).delete("/api/franchise/5/store/1");
+      const res = await request(app).delete(`/api/franchise/${mockFranchise.id}/store/${mockStore.id}`);
 
       expect(res.status).toBe(401);
     });
