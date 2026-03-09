@@ -1,4 +1,28 @@
-const { metrics: {endpointUrl, accountId, apiKey} } = require("./config.js");
+const { metrics } = require("./config.js");
+const os = require("os");
+
+
+// Hardware metrics
+
+function getCpuUsagePercentage() {
+  const cpuUsage = os.loadavg()[0] / os.cpus().length;
+  return (cpuUsage * 100).toFixed(0);
+}
+
+function getMemoryUsagePercentage() {
+  const totalMemory = os.totalmem();
+  const freeMemory = os.freemem();
+  const usedMemory = totalMemory - freeMemory;
+  const memoryUsage = (usedMemory / totalMemory) * 100;
+  return memoryUsage.toFixed(0);
+}
+
+setInterval(() => {
+  sendMetricToGrafana("cpu", getCpuUsagePercentage(), "gauge", "%");
+  sendMetricToGrafana("memory", getMemoryUsagePercentage(), "gauge", "%");
+}, 1000);
+
+
 
 function sendMetricToGrafana(metricName, metricValue, type, unit) {
   const metric = {
@@ -35,11 +59,11 @@ function sendMetricToGrafana(metricName, metricValue, type, unit) {
   }
 
   const body = JSON.stringify(metric);
-  fetch(`${endpointUrl}`, {
+  fetch(`${metrics.endpointUrl}`, {
     method: "POST",
     body: body,
     headers: {
-      Authorization: `Bearer ${accountId}:${apiKey}`,
+      Authorization: `Bearer ${metrics.accountId}:${metrics.apiKey}`,
       "Content-Type": "application/json",
     },
   })
@@ -50,8 +74,6 @@ function sendMetricToGrafana(metricName, metricValue, type, unit) {
             `Failed to push metrics data to Grafana: ${text}\n${body}`,
           );
         });
-      } else {
-        console.log(`Pushed ${metricName}`);
       }
     })
     .catch((error) => {
