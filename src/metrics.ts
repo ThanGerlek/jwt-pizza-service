@@ -6,9 +6,22 @@ const { metrics } = config;
 type MetricType = "gauge" | "sum";
 type MetricUnit = "1" | "%" | "s" | "By" | "MiBy" | "ms";
 
+interface AttributeValue {
+  stringValue?: string;
+  intValue?: string;
+  doubleValue?: number;
+}
+
+interface Attribute {
+  key: string;
+  value: AttributeValue;
+}
+
 interface DataPoint {
-  asInt: number;
+  asInt?: number;
+  asDouble?: number;
   timeUnixNano: number;
+  attributes?: Attribute[];
 }
 
 interface GaugeData {
@@ -79,6 +92,7 @@ registerMetricsTracker(() => {
 // HTTP metrics
 
 const requests: Record<string, number> = {};
+const stringMetrics: Record<string, number> = {};
 
 function requestTracker(
   req: { method: string; path: string },
@@ -87,12 +101,40 @@ function requestTracker(
 ): void {
   const endpoint = `[${req.method}] ${req.path}`;
   requests[endpoint] = (requests[endpoint] ?? 0) + 1;
-  // TODO sendMetricToGrafana(endpoint, 1, "sum", unit)
+
+  // Generic string metric that can be grouped by attributes later in Grafana
+  sendStringMetric("http_requests_total", {
+    method: req.method,
+    path: req.path,
+  });
+
   next();
 }
 
-function sendStringMetric(metricName: string): void {
-  sendMetricToGrafana(metricName, 1, "sum", "1");
+function sendStringMetric(
+  metricName: string,
+  attributes?: Record<string, string>,
+): void {
+  const key = buildMetricKey(metricName, attributes);
+  stringMetrics[key] = (stringMetrics[key] ?? 0) + 1;
+  const value = stringMetrics[key];
+  console.log(
+    `Sent string metric: '${metricName}' -> ${value} ${JSON.stringify(attributes ?? {})}`,
+  );
+  sendMetricToGrafana(metricName, value, "sum", "1", attributes);
+}
+
+function buildMetricKey(
+  metricName: string,
+  attributes?: Record<string, string>,
+): string {
+  if (!attributes) {
+    return metricName;
+  }
+  const sortedEntries = Object.entries(attributes).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  return `${metricName}|${JSON.stringify(sortedEntries)}`;
 }
 
 function sendMetricToGrafana(
@@ -100,16 +142,32 @@ function sendMetricToGrafana(
   metricValue: number,
   type: MetricType,
   unit: MetricUnit,
+  attributes?: Record<string, string>,
 ): void {
   const metricEntry: MetricEntry = {
     name: metricName,
-    unit: unit,
+    unit,
     [type]: {
       dataPoints: [
-        {
-          asDouble: metricValue.toString(),
-          timeUnixNano: Date.now() * 1000000,
-        },
+        ((): DataPoint => {
+          const point: DataPoint = {
+            ...(type === "sum"
+              ? { asInt: Math.trunc(metricValue) }
+              : { asDouble: metricValue }),
+            timeUnixNano: Date.now() * 1000000,
+          };
+
+          if (attributes && Object.keys(attributes).length > 0) {
+            point.attributes = Object.entries(attributes).map(
+              ([key, value]) => ({
+                key,
+                value: { stringValue: value },
+              }),
+            );
+          }
+
+          return point;
+        })(),
       ],
     },
   };
