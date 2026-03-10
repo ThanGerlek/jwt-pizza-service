@@ -24,6 +24,16 @@ setInterval(() => {
 
 
 
+// HTTP metrics
+
+const requests = [];
+
+function requestTracker(req, res, next) {
+  const endpoint = `[${req.method}] ${req.path}`;
+  requests[endpoint] = (requests[endpoint] || 0) + 1;
+  next();
+}
+
 function sendMetricToGrafana(metricName, metricValue, type, unit) {
   const metric = {
     resourceMetrics: [
@@ -81,4 +91,4 @@ function sendMetricToGrafana(metricName, metricValue, type, unit) {
     });
 }
 
-module.exports = { sendMetricToGrafana };
+module.exports = { sendMetricToGrafana, requestTracker };

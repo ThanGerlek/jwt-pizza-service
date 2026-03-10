@@ -5,6 +5,7 @@ const franchiseRouter = require("./routes/franchiseRouter.js");
 const userRouter = require("./routes/userRouter.js");
 const version = require("./version.json");
 const config = require("./config.js");
+const { requestTracker } = require("./metrics.js");
 
 const app = express();
 app.use(express.json());
@@ -49,6 +50,9 @@ app.use("*", (req, res) => {
     message: "unknown endpoint",
   });
 });
+
+app.use(requestTracker);
+
 
 // Default error handler for all exceptions and errors.
 app.use((err, req, res, next) => {
