@@ -4,9 +4,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "cd src && node index.js",
+    "start": "cd src && node --experimental-strip-types index.js",
     "test": "jest --detectOpenHandles",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "typecheck": "tsc"
   },
   "license": "MIT",
   "dependencies": {
@@ -17,12 +18,17 @@
     "nock": "^14.0.11"
   },
   "devDependencies": {
+    "@babel/preset-env": "^7.28.5",
+    "@babel/preset-typescript": "^7.28.5",
     "@eslint/js": "^9.39.2",
     "@types/jest": "^30.0.0",
+    "@types/node": "^25.4.0",
+    "babel-jest": "^30.2.0",
     "eslint": "^9.39.2",
     "eslist": "^1.0.0-beta.1",
     "globals": "^17.0.0",
     "jest": "^30.2.0",
-    "supertest": "^7.2.2"
+    "supertest": "^7.2.2",
+    "typescript": "^5.9.3"
   }
 }

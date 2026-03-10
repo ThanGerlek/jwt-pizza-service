@@ -5,5 +5,9 @@
     "global": {
       "lines": 80
     }
+  },
+  "moduleFileExtensions": ["ts", "js", "json", "node"],
+  "transform": {
+    "^.+\\.tsx?$": "babel-jest"
   }
 }

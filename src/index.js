@@ -1,4 +1,4 @@
-const { startMetrics } = require("./metrics.js");
+const { startMetrics } = require("./metrics.ts");
 const app = require("./service.js");
 
 const port = process.argv[2] || 3000;
