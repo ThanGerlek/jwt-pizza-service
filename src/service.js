@@ -5,7 +5,7 @@ const franchiseRouter = require("./routes/franchiseRouter.js");
 const userRouter = require("./routes/userRouter.js");
 const version = require("./version.json");
 const config = require("./config.js");
-const { requestTracker } = require("./metrics.ts");
+const { requestTracker } = require("./metrics");
 
 const app = express();
 app.use(express.json());

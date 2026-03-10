@@ -37,7 +37,7 @@ jest.mock("../src/config.js", () => mockConfig);
 // Import real DB class after mocking dependencies
 const database = require("../src/database/database.js");
 const { StatusCodeError } = require("../src/endpointHelper.js");
-const { stopMetrics } = require("../src/metrics.ts");
+const { stopMetrics } = require("../src/metrics");
 const { Role } = require("../src/model/model.js");
 
 // Override the DB instance's initialized promise to avoid actual DB initialization
