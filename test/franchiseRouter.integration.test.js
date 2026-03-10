@@ -1,3 +1,4 @@
+const { stopMetrics } = require("../src/metrics");
 const { setupMocks } = require("./test_utils/mocked_imports");
 const { request, app, DB, jwt } = setupMocks();
 
@@ -13,6 +14,10 @@ const {
 describe("Franchise Router Integration Tests", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  afterAll(() => {
+    stopMetrics();
   });
 
   

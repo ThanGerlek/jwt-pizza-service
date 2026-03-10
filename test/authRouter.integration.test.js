@@ -1,9 +1,14 @@
+const { stopMetrics } = require("../src/metrics");
 const { setupMocks } = require("./test_utils/mocked_imports");
 const { request, app, DB } = setupMocks();
 
 describe("auth routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  afterAll(() => {
+    stopMetrics();
   });
 
   test("register POST /api/auth returns user and token", async () => {

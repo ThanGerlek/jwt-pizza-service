@@ -1,3 +1,4 @@
+const { stopMetrics } = require("../src/metrics");
 const { setupMocks } = require("./test_utils/mocked_imports");
 const buildMocks = require("./test_utils/test_utils");
 const { request, app, DB, jwt } = setupMocks();
@@ -7,6 +8,10 @@ const { mockLoginAsAdmin, mockLoginAsDiner } = buildMocks(DB, jwt);
 describe("user routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  afterAll(() => {
+    stopMetrics();
   });
 
   test("GET /api/user/me returns authenticated user", async () => {

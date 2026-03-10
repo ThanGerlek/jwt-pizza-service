@@ -1,6 +1,23 @@
 const { metrics } = require("./config.js");
 const os = require("os");
 
+let metricsTrackers = [];
+let metricsIntervals = [];
+
+function registerMetricsTracker(trackerFn, delay) {
+  metricsTrackers.push({trackerFn, delay});
+}
+
+function startMetrics() {
+  metricsIntervals = metricsTrackers.map(pair => setInterval(pair.trackerFn, pair.delay));
+}
+
+function stopMetrics() {
+  metricsIntervals.forEach(intervalId => {
+    clearInterval(intervalId);
+  });
+  metricsIntervals = [];
+}
 
 // Hardware metrics
 
@@ -17,7 +34,7 @@ function getMemoryUsagePercentage() {
   return memoryUsage.toFixed(0);
 }
 
-setInterval(() => {
+registerMetricsTracker(() => {
   sendMetricToGrafana("cpu", getCpuUsagePercentage(), "gauge", "%");
   sendMetricToGrafana("memory", getMemoryUsagePercentage(), "gauge", "%");
 }, 1000);
@@ -91,4 +108,4 @@ function sendMetricToGrafana(metricName, metricValue, type, unit) {
     });
 }
 
-module.exports = { sendMetricToGrafana, requestTracker };
+module.exports = { sendMetricToGrafana, requestTracker, startMetrics, stopMetrics };

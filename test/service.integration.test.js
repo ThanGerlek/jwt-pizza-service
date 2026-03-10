@@ -1,9 +1,14 @@
+const { stopMetrics } = require("../src/metrics");
 const { setupMocks } = require("./test_utils/mocked_imports");
 const { request, app } = setupMocks();
 
 describe("Service Integration Tests - Edge Cases", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  afterAll(() => {
+    stopMetrics();
   });
 
   // ====================================================================

@@ -1,3 +1,4 @@
+const { stopMetrics } = require("../src/metrics");
 const { setupMocks } = require("./test_utils/mocked_imports");
 const { request, app, DB, jwt } = setupMocks();
 const nock = require('nock');
@@ -8,6 +9,10 @@ const { mockLoginAsAdmin, mockLoginAsDiner, mockUserDiner } = buildMocks(DB, jwt
 describe("Order Router Integration Tests", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  afterAll(() => {
+    stopMetrics();
   });
 
   // ====================================================================
@@ -61,7 +66,7 @@ describe("Order Router Integration Tests", () => {
       image: "test.png",
       price: 0.001,
     };
-    
+
     test("admin adds menu item successfully", async () => {
       mockLoginAsAdmin();
       const updatedMenu = [newItem];
@@ -147,7 +152,7 @@ describe("Order Router Integration Tests", () => {
   describe("POST /api/order", () => {
     test("returns success ", async () => {
       mockLoginAsDiner();
-      
+
       const orderReq = {
         franchiseId: 11,
         storeId: 101,
