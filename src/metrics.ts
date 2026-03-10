@@ -4,7 +4,7 @@ import os from "os";
 const { metrics } = config;
 
 type MetricType = "gauge" | "sum";
-type MetricUnit = "1" | "%" | "ms";
+type MetricUnit = "1" | "%" | "s" | "By" | "MiBy" | "ms";
 
 interface DataPoint {
   asInt: number;
@@ -36,7 +36,7 @@ interface OtelPayload {
   }>;
 }
 
-let metricsTrackers: {trackerFn: () => void, delay: number}[] = [];
+let metricsTrackers: { trackerFn: () => void; delay: number }[] = [];
 let metricsIntervals: ReturnType<typeof setInterval>[] = [];
 
 function registerMetricsTracker(trackerFn: () => void, delay: number): void {
@@ -45,7 +45,7 @@ function registerMetricsTracker(trackerFn: () => void, delay: number): void {
 
 function startMetrics(): void {
   metricsIntervals = metricsTrackers.map((pair) =>
-    setInterval(pair.trackerFn, pair.delay)
+    setInterval(pair.trackerFn, pair.delay),
   );
 }
 
@@ -58,25 +58,23 @@ function stopMetrics(): void {
 
 // Hardware metrics
 
-function getCpuUsagePercentage(): string {
+function getCpuUsagePercentage(): number {
   const cpuUsage = (os.loadavg()[0] ?? 0) / os.cpus().length;
-  return (cpuUsage * 100).toFixed(0);
+  return cpuUsage * 100;
 }
 
-function getMemoryUsagePercentage(): string {
+function getMemoryUsagePercentage(): number {
   const totalMemory = os.totalmem();
   const freeMemory = os.freemem();
   const usedMemory = totalMemory - freeMemory;
   const memoryUsage = (usedMemory / totalMemory) * 100;
-  return memoryUsage.toFixed(0);
+  return memoryUsage;
 }
 
 registerMetricsTracker(() => {
   sendMetricToGrafana("cpu", getCpuUsagePercentage(), "gauge", "%");
   sendMetricToGrafana("memory", getMemoryUsagePercentage(), "gauge", "%");
 }, 1000);
-
-
 
 // HTTP metrics
 
@@ -85,7 +83,7 @@ const requests: Record<string, number> = {};
 function requestTracker(
   req: { method: string; path: string },
   res: unknown,
-  next: () => void
+  next: () => void,
 ): void {
   const endpoint = `[${req.method}] ${req.path}`;
   requests[endpoint] = (requests[endpoint] ?? 0) + 1;
@@ -93,26 +91,29 @@ function requestTracker(
   next();
 }
 
-function sendMetricToGrafana(metricName: string, metricValue: string, type: MetricType, unit: MetricUnit): void {
-  // requests += Math.floor(Math.random() * 200) + 1;
-  // sendMetricToGrafana("requests", requests, "sum", "1");
-  // latency += Math.floor(Math.random() * 200) + 1;
-  // sendMetricToGrafana("latency", latency, "sum", "ms");
+function sendStringMetric(metricName: string): void {
+  sendMetricToGrafana(metricName, 1, "sum", "1");
+}
 
+function sendMetricToGrafana(
+  metricName: string,
+  metricValue: number,
+  type: MetricType,
+  unit: MetricUnit,
+): void {
   const metricEntry: MetricEntry = {
     name: metricName,
     unit: unit,
     [type]: {
       dataPoints: [
         {
-          asInt: metricValue,
+          asDouble: metricValue.toString(),
           timeUnixNano: Date.now() * 1000000,
         },
       ],
     },
-
-  }
-  const metric = {
+  };
+  const otelPayload: OtelPayload = {
     resourceMetrics: [
       {
         scopeMetrics: [
@@ -129,11 +130,8 @@ function sendMetricToGrafana(metricName: string, metricValue: string, type: Metr
     sumData.aggregationTemporality = "AGGREGATION_TEMPORALITY_CUMULATIVE";
     sumData.isMonotonic = true;
   }
-  const metricRequest = {
-    resourceMetrics: [{ scopeMetrics: [{ metrics: [metricEntry] }] }]
-  };
 
-  const body = JSON.stringify(metricRequest);
+  const body = JSON.stringify(otelPayload);
   fetch(`${metrics.endpointUrl}`, {
     method: "POST",
     body: body,
@@ -146,7 +144,7 @@ function sendMetricToGrafana(metricName: string, metricValue: string, type: Metr
       if (!response.ok) {
         response.text().then((text) => {
           console.error(
-            `Failed to push metrics data to Grafana: ${text}\n${body}`
+            `Failed to push metrics data to Grafana: ${text}\n${body}`,
           );
         });
       }
