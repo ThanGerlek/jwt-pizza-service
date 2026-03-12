@@ -1,0 +1,18 @@
+---
+description: Require running tests, linter, and typechecker after potentially error-causing changes
+alwaysApply: true
+---
+
+# Run the tests, linter, and typechecker
+
+- **When to run**: Whenever the agent makes any change that might affect the code (e.g. editing source files, changing configs, or modifying scripts), the work is **not complete** until `npm run check` has been re-run after the changes. This triggers tests, the typechecker, and the linter to run.
+- **Be aware of all errors you caused**: You must look at the output and understand any new errors or warnings that result from your changes.
+- **Handle new failures**:
+  - If there are any failures due to errors introduced by the agent, the agent must either:
+    - Fix the errors and re-run the command(s) until they pass, **or**
+    - Clearly report the remaining failing tests/type errors to the user, including why they were not fixed (for example, missing context, external dependency, or user decision), **or**
+    - Follow any more specific instructions from the user that override this behavior.
+  - If there are pre-existing failing tests or type errors that the agent did not introduce, the agent should:
+    - Avoid making them worse, and
+    - Call out which failures appear to be pre-existing vs. newly introduced.
+- **No silent failures**: Do **not** consider a change "done" if the checker reports new errors caused by your edits and you have neither fixed nor clearly reported them.
