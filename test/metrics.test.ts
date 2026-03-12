@@ -23,6 +23,14 @@ describe("metrics module", () => {
     res: unknown,
     next: () => void,
   ) => void;
+  let requestLatencyTracker: (
+    req: { method: string; path: string },
+    res: {
+      on: (event: string, callback: () => void) => void;
+      statusCode?: number;
+    },
+    next: () => void,
+  ) => void;
   let trackAuthAttempt: (success: boolean) => void;
   let trackPizzaCreationSuccess: (details: {
     pizzasCount: number;
@@ -37,6 +45,15 @@ describe("metrics module", () => {
     dinerId?: number | string;
     reason?: string;
   }) => void;
+  let trackPizzaCreationLatency: (
+    outcome: "success" | "failure",
+    durationMs: number,
+    details: {
+      franchiseId?: number | string;
+      storeId?: number | string;
+      dinerId?: number | string;
+    },
+  ) => void;
 
   beforeEach(async () => {
     jest.resetModules();
@@ -54,9 +71,11 @@ describe("metrics module", () => {
     startMetrics = metrics.startMetrics;
     stopMetrics = metrics.stopMetrics;
     requestTracker = metrics.requestTracker;
+    requestLatencyTracker = metrics.requestLatencyTracker;
     trackAuthAttempt = metrics.trackAuthAttempt;
     trackPizzaCreationSuccess = metrics.trackPizzaCreationSuccess;
     trackPizzaCreationFailure = metrics.trackPizzaCreationFailure;
+    trackPizzaCreationLatency = metrics.trackPizzaCreationLatency;
   });
 
   afterEach(() => {
@@ -94,6 +113,47 @@ describe("metrics module", () => {
     );
 
     expect(metricNames).toContain("http_requests_total");
+  });
+
+  test("requestLatencyTracker records http_request_duration_ms with attributes on response finish", () => {
+    const next = jest.fn();
+    const listeners: Record<string, Array<() => void>> = {};
+    const res = {
+      statusCode: 201,
+      on: (event: string, callback: () => void) => {
+        if (!listeners[event]) {
+          listeners[event] = [];
+        }
+        listeners[event].push(callback);
+      },
+    };
+
+    requestLatencyTracker({ method: "POST", path: "/api/order" }, res, next);
+    expect(next).toHaveBeenCalled();
+
+    (listeners.finish || []).forEach((cb) => cb());
+
+    stopMetrics();
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [, options] = (global.fetch as jest.Mock).mock.calls[0];
+    const body = JSON.parse(options.body);
+    const metrics = body.resourceMetrics[0].scopeMetrics[0].metrics;
+
+    const latencyMetric = metrics.find(
+      (m: { name: string }) => m.name === "http_request_duration_ms",
+    );
+    expect(latencyMetric).toBeDefined();
+    expect(latencyMetric.unit).toBe("ms");
+
+    const attrs = latencyMetric.sum?.dataPoints?.[0]?.attributes ?? [];
+    const methodAttr = attrs.find((a: { key: string }) => a.key === "method");
+    const pathAttr = attrs.find((a: { key: string }) => a.key === "path");
+    const statusAttr = attrs.find((a: { key: string }) => a.key === "status");
+
+    expect(methodAttr?.value?.stringValue).toBe("POST");
+    expect(pathAttr?.value?.stringValue).toBe("/api/order");
+    expect(statusAttr?.value?.stringValue).toBe("201");
   });
 
   test("trackAuthAttempt(true) records auth_attempts_total with outcome success in flushed payload", () => {
@@ -210,5 +270,74 @@ describe("metrics module", () => {
     expect(franchiseAttr?.value?.stringValue).toBe("2");
     expect(storeAttr?.value?.stringValue).toBe("4");
     expect(reasonAttr?.value?.stringValue).toBe("factory_error");
+  });
+
+  test("trackPizzaCreationLatency records duration and attributes for success", () => {
+    trackPizzaCreationLatency("success", 123.45, {
+      franchiseId: 10,
+      storeId: 20,
+      dinerId: 30,
+    });
+    stopMetrics();
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [, options] = (global.fetch as jest.Mock).mock.calls[0];
+    const body = JSON.parse(options.body);
+    const metrics = body.resourceMetrics[0].scopeMetrics[0].metrics;
+
+    const latencyMetric = metrics.find(
+      (m: { name: string }) => m.name === "pizza_creation_duration_ms",
+    );
+    expect(latencyMetric).toBeDefined();
+
+    const point = latencyMetric.sum?.dataPoints?.[0];
+    const value = point?.asInt ?? point?.asDouble;
+    expect(value).toBeCloseTo(123.45);
+
+    const attrs = point?.attributes ?? [];
+    const outcomeAttr = attrs.find((a: { key: string }) => a.key === "outcome");
+    const franchiseAttr = attrs.find(
+      (a: { key: string }) => a.key === "franchiseId",
+    );
+    const storeAttr = attrs.find((a: { key: string }) => a.key === "storeId");
+    const dinerAttr = attrs.find((a: { key: string }) => a.key === "dinerId");
+
+    expect(outcomeAttr?.value?.stringValue).toBe("success");
+    expect(franchiseAttr?.value?.stringValue).toBe("10");
+    expect(storeAttr?.value?.stringValue).toBe("20");
+    expect(dinerAttr?.value?.stringValue).toBe("30");
+  });
+
+  test("trackPizzaCreationLatency records duration and attributes for failure", () => {
+    trackPizzaCreationLatency("failure", 250.0, {
+      franchiseId: 11,
+      storeId: 21,
+    });
+    stopMetrics();
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [, options] = (global.fetch as jest.Mock).mock.calls[0];
+    const body = JSON.parse(options.body);
+    const metrics = body.resourceMetrics[0].scopeMetrics[0].metrics;
+
+    const latencyMetric = metrics.find(
+      (m: { name: string }) => m.name === "pizza_creation_duration_ms",
+    );
+    expect(latencyMetric).toBeDefined();
+
+    const point = latencyMetric.sum?.dataPoints?.[0];
+    const value = point?.asInt ?? point?.asDouble;
+    expect(value).toBeCloseTo(250.0);
+
+    const attrs = point?.attributes ?? [];
+    const outcomeAttr = attrs.find((a: { key: string }) => a.key === "outcome");
+    const franchiseAttr = attrs.find(
+      (a: { key: string }) => a.key === "franchiseId",
+    );
+    const storeAttr = attrs.find((a: { key: string }) => a.key === "storeId");
+
+    expect(outcomeAttr?.value?.stringValue).toBe("failure");
+    expect(franchiseAttr?.value?.stringValue).toBe("11");
+    expect(storeAttr?.value?.stringValue).toBe("21");
   });
 });

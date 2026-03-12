@@ -6,6 +6,7 @@ const { asyncHandler, StatusCodeError } = require("../endpointHelper.js");
 const {
   trackPizzaCreationFailure,
   trackPizzaCreationSuccess,
+  trackPizzaCreationLatency,
 } = require("../metrics.ts");
 
 const orderRouter = express.Router();
@@ -117,6 +118,7 @@ orderRouter.post(
   "/",
   authRouter.authenticateToken,
   asyncHandler(async (req, res) => {
+    const startTime = Date.now();
     const orderReq = req.body;
     const order = await DB.addDinerOrder(req.user, orderReq);
     const pizzasCount = Array.isArray(orderReq.items)
@@ -139,6 +141,7 @@ orderRouter.post(
     });
     const j = await r.json();
     if (r.ok) {
+      const durationMs = Date.now() - startTime;
       trackPizzaCreationSuccess({
         pizzasCount,
         revenue,
@@ -146,13 +149,24 @@ orderRouter.post(
         storeId: order.storeId,
         dinerId: req.user.id,
       });
+      trackPizzaCreationLatency("success", durationMs, {
+        franchiseId: order.franchiseId,
+        storeId: order.storeId,
+        dinerId: req.user.id,
+      });
       res.send({ order, followLinkToEndChaos: j.reportUrl, jwt: j.jwt });
     } else {
+      const durationMs = Date.now() - startTime;
       trackPizzaCreationFailure({
         franchiseId: order.franchiseId,
         storeId: order.storeId,
         dinerId: req.user.id,
         reason: "factory_error",
+      });
+      trackPizzaCreationLatency("failure", durationMs, {
+        franchiseId: order.franchiseId,
+        storeId: order.storeId,
+        dinerId: req.user.id,
       });
       res.status(500).send({
         message: "Failed to fulfill order at factory",

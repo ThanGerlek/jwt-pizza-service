@@ -157,6 +157,51 @@ function requestTracker(
   next();
 }
 
+function requestLatencyTracker(
+  req: { method: string; path: string },
+  res: {
+    on: (event: string, callback: () => void) => void;
+    statusCode?: number;
+  },
+  next: () => void,
+): void {
+  const { method, path } = req;
+  const startTime =
+    typeof process.hrtime === "function" &&
+    typeof process.hrtime.bigint === "function"
+      ? process.hrtime.bigint()
+      : null;
+  const fallbackStart = startTime === null ? Date.now() : 0;
+
+  res.on("finish", () => {
+    let durationMs: number;
+
+    if (startTime !== null) {
+      const endTime = process.hrtime.bigint();
+      const diffNs = endTime - startTime;
+      durationMs = Number(diffNs) / 1_000_000;
+    } else {
+      durationMs = Date.now() - fallbackStart;
+    }
+
+    const attributes: Record<string, string> = {
+      method,
+      path,
+      status: String(res.statusCode ?? 0),
+    };
+
+    recordValue(
+      "http_request_duration_ms",
+      durationMs,
+      "sum",
+      "ms",
+      attributes,
+    );
+  });
+
+  next();
+}
+
 function trackAuthAttempt(success: boolean): void {
   recordCount("auth_attempts_total", {
     outcome: success ? "success" : "failure",
@@ -210,6 +255,40 @@ function trackPizzaCreationFailure(details: {
   }
 
   recordCount("pizza_creation_failures_total", attributes);
+}
+
+function trackPizzaCreationLatency(
+  outcome: "success" | "failure",
+  durationMs: number,
+  details: {
+    franchiseId?: number | string;
+    storeId?: number | string;
+    dinerId?: number | string;
+  },
+): void {
+  const attributes: Record<string, string> = {
+    outcome,
+  };
+
+  if (details.franchiseId !== undefined) {
+    attributes.franchiseId = String(details.franchiseId);
+  }
+
+  if (details.storeId !== undefined) {
+    attributes.storeId = String(details.storeId);
+  }
+
+  if (details.dinerId !== undefined) {
+    attributes.dinerId = String(details.dinerId);
+  }
+
+  recordValue(
+    "pizza_creation_duration_ms",
+    durationMs,
+    "sum",
+    "ms",
+    attributes,
+  );
 }
 
 /** Record one occurrence of a counter identified by name and attributes. */
@@ -353,6 +432,7 @@ function recordValue(
 }
 
 export {
+  requestLatencyTracker,
   recordCount,
   recordValue,
   requestTracker,
@@ -361,4 +441,5 @@ export {
   trackAuthAttempt,
   trackPizzaCreationFailure,
   trackPizzaCreationSuccess,
+  trackPizzaCreationLatency,
 };

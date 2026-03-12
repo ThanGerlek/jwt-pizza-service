@@ -1,11 +1,15 @@
-jest.mock("../src/metrics", () => ({
-  trackAuthAttempt: jest.fn(),
-  requestTracker: (req, res, next) => next(),
-  startMetrics: jest.fn(),
-  stopMetrics: jest.fn(),
-  recordCount: jest.fn(),
-  recordValue: jest.fn(),
-}));
+jest.mock("../src/metrics", () => {
+  const passThroughMiddleware = (req, res, next) => next();
+  return {
+    trackAuthAttempt: jest.fn(),
+    requestTracker: passThroughMiddleware,
+    requestLatencyTracker: passThroughMiddleware,
+    startMetrics: jest.fn(),
+    stopMetrics: jest.fn(),
+    recordCount: jest.fn(),
+    recordValue: jest.fn(),
+  };
+});
 
 const { trackAuthAttempt, stopMetrics } = require("../src/metrics");
 const { setupMocks } = require("./test_utils/mocked_imports");
