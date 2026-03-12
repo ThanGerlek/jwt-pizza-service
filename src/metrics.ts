@@ -163,6 +163,55 @@ function trackAuthAttempt(success: boolean): void {
   });
 }
 
+function trackPizzaCreationSuccess(details: {
+  pizzasCount: number;
+  revenue: number;
+  franchiseId?: number | string;
+  storeId?: number | string;
+  dinerId?: number | string;
+}): void {
+  const { pizzasCount, revenue, franchiseId, storeId } = details;
+
+  const baseAttributes: Record<string, string> = {};
+
+  if (franchiseId !== undefined) {
+    baseAttributes.franchiseId = String(franchiseId);
+  }
+
+  if (storeId !== undefined) {
+    baseAttributes.storeId = String(storeId);
+  }
+
+  recordCount("pizza_creations_total", baseAttributes);
+  recordValue("pizza_revenue_total", revenue, "sum", "1", baseAttributes);
+  recordValue("pizzas_sold_total", pizzasCount, "sum", "1", baseAttributes);
+}
+
+function trackPizzaCreationFailure(details: {
+  franchiseId?: number | string;
+  storeId?: number | string;
+  dinerId?: number | string;
+  reason?: string;
+}): void {
+  const { franchiseId, storeId, reason } = details;
+
+  const attributes: Record<string, string> = {};
+
+  if (franchiseId !== undefined) {
+    attributes.franchiseId = String(franchiseId);
+  }
+
+  if (storeId !== undefined) {
+    attributes.storeId = String(storeId);
+  }
+
+  if (reason !== undefined) {
+    attributes.reason = reason;
+  }
+
+  recordCount("pizza_creation_failures_total", attributes);
+}
+
 /** Record one occurrence of a counter identified by name and attributes. */
 function recordCount(name: string, attributes?: Record<string, string>): void {
   const key = buildCumulativeMetricKey(name, attributes);
@@ -199,7 +248,9 @@ function enqueueMetric(
         ((): DataPoint => {
           const point: DataPoint = {
             ...(type === "sum"
-              ? { asInt: Math.trunc(metricValue) }
+              ? Number.isInteger(metricValue)
+                ? { asInt: metricValue }
+                : { asDouble: metricValue }
               : { asDouble: metricValue }),
             timeUnixNano: Date.now() * 1000000,
           };
@@ -308,4 +359,6 @@ export {
   startMetrics,
   stopMetrics,
   trackAuthAttempt,
+  trackPizzaCreationFailure,
+  trackPizzaCreationSuccess,
 };

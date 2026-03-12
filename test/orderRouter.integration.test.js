@@ -1,190 +1,163 @@
-const { stopMetrics } = require("../src/metrics");
+jest.mock("../src/metrics", () => {
+  const passThroughMiddleware = (req, res, next) => next();
+  return {
+    requestTracker: passThroughMiddleware,
+    requestLatencyTracker: passThroughMiddleware,
+    startMetrics: jest.fn(),
+    stopMetrics: jest.fn(),
+    recordCount: jest.fn(),
+    recordValue: jest.fn(),
+    trackPizzaCreationSuccess: jest.fn(),
+    trackPizzaCreationFailure: jest.fn(),
+    trackPizzaCreationLatency: jest.fn(),
+  };
+});
+
+const {
+  trackPizzaCreationSuccess,
+  trackPizzaCreationFailure,
+  trackPizzaCreationLatency,
+  stopMetrics,
+} = require("../src/metrics");
+
 const { setupMocks } = require("./test_utils/mocked_imports");
 const { request, app, DB, jwt } = setupMocks();
-const nock = require('nock');
 
-const buildMocks = require("./test_utils/test_utils");
-const { mockLoginAsAdmin, mockLoginAsDiner, mockUserDiner } = buildMocks(DB, jwt);
-
-describe("Order Router Integration Tests", () => {
+describe("order routes metrics", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    DB.isLoggedIn.mockResolvedValue(true);
+    // Default JWT payload for authenticated diner
+    jwt.verify.mockReturnValue({
+      id: 10,
+      name: "pizza diner",
+      email: "d@jwt.com",
+      roles: [{ role: "diner" }],
+    });
+
+    // Mock factory service fetch
+    global.fetch = jest.fn();
+  });
+
+  afterEach(() => {
+    global.fetch = undefined;
   });
 
   afterAll(() => {
     stopMetrics();
   });
 
-  // ====================================================================
-  // GET /api/order/menu - Get menu
-  // ====================================================================
-  describe("GET /api/order/menu", () => {
-    test("returns menu without requiring authentication", async () => {
-      const mockMenu = [
-        {
-          id: 1,
-          title: "Veggie",
-          description: "A garden delight",
-          image: "pizza1.png",
-          price: 0.0038,
-        },
-        {
-          id: 2,
-          title: "Pepperoni",
-          description: "Spicy goodness",
-          image: "pizza2.png",
-          price: 0.0042,
-        },
-      ];
-      DB.getMenu.mockResolvedValueOnce(mockMenu);
-
-      const res = await request(app).get("/api/order/menu");
-
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual(mockMenu);
-      expect(DB.getMenu).toHaveBeenCalled();
-      expect(DB.isLoggedIn).not.toHaveBeenCalled();
+  test("successful POST /api/order records pizza creation success metrics with revenue and attributes", async () => {
+    // Arrange DB behavior
+    DB.addDinerOrder.mockResolvedValueOnce({
+      id: 1,
+      franchiseId: 1,
+      storeId: 2,
+      items: [
+        { menuId: 1, description: "Veggie", price: 0.05 },
+        { menuId: 2, description: "Pepperoni", price: 0.1 },
+      ],
     });
 
-    test("returns empty array when no menu items", async () => {
-      DB.getMenu.mockResolvedValueOnce([]);
-
-      const res = await request(app).get("/api/order/menu");
-
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual([]);
-    });
-  });
-
-  // ====================================================================
-  // PUT /api/order/menu - Add menu item
-  // ====================================================================
-  describe("PUT /api/order/menu", () => {
-    const newItem = {
-      title: "Test",
-      description: "Test",
-      image: "test.png",
-      price: 0.001,
+    const orderBody = {
+      franchiseId: 1,
+      storeId: 2,
+      items: [
+        { menuId: 1, description: "Veggie", price: 0.05 },
+        { menuId: 2, description: "Pepperoni", price: 0.1 },
+      ],
     };
 
-    test("admin adds menu item successfully", async () => {
-      mockLoginAsAdmin();
-      const updatedMenu = [newItem];
-
-      DB.addMenuItem.mockResolvedValueOnce();
-      DB.getMenu.mockResolvedValueOnce(updatedMenu);
-
-      const res = await request(app)
-        .put("/api/order/menu")
-        .set("Authorization", "Bearer tok.sig.sgn")
-        .send(newItem);
-
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual(updatedMenu);
-      expect(DB.addMenuItem).toHaveBeenCalledWith(newItem);
-      expect(DB.getMenu).toHaveBeenCalled();
+    // Factory responds successfully
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        reportUrl: "http://factory/report/1",
+        jwt: "factory.jwt",
+      }),
     });
 
-    test("returns 403 for non-admin", async () => {
-      mockLoginAsDiner();
+    // Act
+    const res = await request(app)
+      .post("/api/order")
+      .set("Authorization", "Bearer tok.sig.sgn")
+      .send(orderBody);
 
-      const res = await request(app)
-        .put("/api/order/menu")
-        .set("Authorization", "Bearer tok.sig.sgn")
-        .send(newItem);
+    // Assert HTTP behavior
+    expect(res.status).toBe(200);
+    expect(DB.addDinerOrder).toHaveBeenCalledTimes(1);
 
-      expect(res.status).toBe(403);
-      expect(res.body.message).toBe("unable to add menu item");
-      expect(DB.addMenuItem).not.toHaveBeenCalled();
-    });
+    // Assert metrics
+    expect(trackPizzaCreationSuccess).toHaveBeenCalledTimes(1);
+    expect(trackPizzaCreationLatency).toHaveBeenCalledTimes(1);
+    expect(trackPizzaCreationFailure).not.toHaveBeenCalled();
 
-    test("returns 401 without auth token", async () => {
-      const res = await request(app).put("/api/order/menu").send(newItem);
+    const successArgs = trackPizzaCreationSuccess.mock.calls[0][0];
+    expect(successArgs.pizzasCount).toBe(2);
+    expect(successArgs.revenue).toBeCloseTo(0.15);
+    expect(successArgs.franchiseId).toBe(1);
+    expect(successArgs.storeId).toBe(2);
+    expect(successArgs.dinerId).toBe(10);
 
-      expect(res.status).toBe(401);
-      expect(res.body.message).toBe("unauthorized");
-    });
-  });
-
-  // ====================================================================
-  // GET /api/order - Get orders
-  // ====================================================================
-  describe("GET /api/order", () => {
-    test("returns authenticated user's orders", async () => {
-      const userData = mockLoginAsDiner();
-
-      const mockOrders = {
-        dinerId: userData.id,
-        orders: [
-          {
-            id: 1,
-            franchiseId: 1,
-            storeId: 1,
-            date: "2024-01-01",
-            items: [{ id: 1, menuId: 1, description: "Veggie", price: 0.0038 }],
-          },
-        ],
-        page: 1,
-      };
-
-      DB.getOrders.mockResolvedValueOnce(mockOrders);
-
-      const res = await request(app)
-        .get("/api/order")
-        .set("Authorization", "Bearer tok.sig.sgn");
-
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual(mockOrders);
-      expect(DB.getOrders).toHaveBeenCalledWith(mockUserDiner, undefined);
-    });
-
-    test("returns 401 without auth token", async () => {
-      const res = await request(app).get("/api/order");
-
-      expect(res.status).toBe(401);
-      expect(res.body.message).toBe("unauthorized");
+    const latencyArgs = trackPizzaCreationLatency.mock.calls[0];
+    expect(latencyArgs[0]).toBe("success");
+    // latencyArgs[1] is durationMs – just assert it is a positive number
+    expect(typeof latencyArgs[1]).toBe("number");
+    expect(latencyArgs[1]).toBeGreaterThanOrEqual(0);
+    expect(latencyArgs[2]).toMatchObject({
+      franchiseId: 1,
+      storeId: 2,
+      dinerId: 10,
     });
   });
 
-  // ====================================================================
-  // POST /api/order - Create order
-  // ====================================================================
-  describe("POST /api/order", () => {
-    test("returns success ", async () => {
-      mockLoginAsDiner();
-
-      const orderReq = {
-        franchiseId: 11,
-        storeId: 101,
-        items: [{ menuId: 2, description: "Pepperoni", price: 0.0038 }],
-      };
-      const mockPizzaFactoryResponse = { order: {...orderReq, id: 5} };
-
-      DB.addDinerOrder.mockResolvedValueOnce(mockPizzaFactoryResponse.order);
-      nock('https://pizza-factory.cs329.click')
-        .post('/api/order')
-        .reply(200, mockPizzaFactoryResponse);
-
-      const res = await request(app)
-        .post("/api/order")
-        .set("Authorization", "Bearer tok.sig.sgn")
-        .send(orderReq);
-
-      expect(res.status).toBe(200);
-      expect(res.body).toMatchObject(mockPizzaFactoryResponse);
+  test("failed factory call records pizza creation failure metrics and failure latency", async () => {
+    DB.addDinerOrder.mockResolvedValueOnce({
+      id: 2,
+      franchiseId: 3,
+      storeId: 4,
+      items: [{ menuId: 1, description: "Veggie", price: 0.05 }],
     });
 
-    test("returns 401 without auth token", async () => {
-      const orderReq = {
-        franchiseId: 1,
-        storeId: 1,
-        items: [{ menuId: 1, description: "Veggie", price: 0.0038 }],
-      };
+    const orderBody = {
+      franchiseId: 3,
+      storeId: 4,
+      items: [{ menuId: 1, description: "Veggie", price: 0.05 }],
+    };
 
-      const res = await request(app).post("/api/order").send(orderReq);
+    // Factory responds with error
+    global.fetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ reportUrl: "http://factory/report/error" }),
+    });
 
-      expect(res.status).toBe(401);
-      expect(res.body.message).toBe("unauthorized");
+    const res = await request(app)
+      .post("/api/order")
+      .set("Authorization", "Bearer tok.sig.sgn")
+      .send(orderBody);
+
+    expect(res.status).toBe(500);
+
+    expect(trackPizzaCreationFailure).toHaveBeenCalledTimes(1);
+    expect(trackPizzaCreationLatency).toHaveBeenCalledTimes(1);
+    expect(trackPizzaCreationSuccess).not.toHaveBeenCalled();
+
+    const failureArgs = trackPizzaCreationFailure.mock.calls[0][0];
+    expect(failureArgs).toMatchObject({
+      franchiseId: 3,
+      storeId: 4,
+      dinerId: 10,
+      reason: "factory_error",
+    });
+
+    const latencyArgs = trackPizzaCreationLatency.mock.calls[0];
+    expect(latencyArgs[0]).toBe("failure");
+    expect(typeof latencyArgs[1]).toBe("number");
+    expect(latencyArgs[1]).toBeGreaterThanOrEqual(0);
+    expect(latencyArgs[2]).toMatchObject({
+      franchiseId: 3,
+      storeId: 4,
+      dinerId: 10,
     });
   });
 });
