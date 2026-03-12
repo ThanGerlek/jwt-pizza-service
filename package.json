@@ -6,8 +6,9 @@
   "scripts": {
     "start": "cd src && node --experimental-strip-types index.js",
     "test": "jest --detectOpenHandles",
+    "test:start": "./test-start.sh",
     "lint": "eslint .",
-    "check": "npm run lint && npm test && npm run typecheck",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run test:start",
     "typecheck": "tsc"
   },
   "license": "MIT",
