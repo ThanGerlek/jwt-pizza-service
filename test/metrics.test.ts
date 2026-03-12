@@ -23,6 +23,7 @@ describe("metrics module", () => {
     res: unknown,
     next: () => void,
   ) => void;
+  let trackAuthAttempt: (success: boolean) => void;
 
   beforeEach(async () => {
     jest.resetModules();
@@ -40,6 +41,7 @@ describe("metrics module", () => {
     startMetrics = metrics.startMetrics;
     stopMetrics = metrics.stopMetrics;
     requestTracker = metrics.requestTracker;
+    trackAuthAttempt = metrics.trackAuthAttempt;
   });
 
   afterEach(() => {
@@ -77,5 +79,45 @@ describe("metrics module", () => {
     );
 
     expect(metricNames).toContain("http_requests_total");
+  });
+
+  test("trackAuthAttempt(true) records auth_attempts_total with outcome success in flushed payload", () => {
+    trackAuthAttempt(true);
+    stopMetrics();
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [, options] = (global.fetch as jest.Mock).mock.calls[0];
+    const body = JSON.parse(options.body);
+    const metrics = body.resourceMetrics[0].scopeMetrics[0].metrics;
+
+    const authMetric = metrics.find(
+      (m: { name: string }) => m.name === "auth_attempts_total",
+    );
+    expect(authMetric).toBeDefined();
+    const attributes = authMetric.sum?.dataPoints?.[0]?.attributes ?? [];
+    const outcomeAttr = attributes.find(
+      (a: { key: string }) => a.key === "outcome",
+    );
+    expect(outcomeAttr?.value?.stringValue).toBe("success");
+  });
+
+  test("trackAuthAttempt(false) records auth_attempts_total with outcome failure in flushed payload", () => {
+    trackAuthAttempt(false);
+    stopMetrics();
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [, options] = (global.fetch as jest.Mock).mock.calls[0];
+    const body = JSON.parse(options.body);
+    const metrics = body.resourceMetrics[0].scopeMetrics[0].metrics;
+
+    const authMetric = metrics.find(
+      (m: { name: string }) => m.name === "auth_attempts_total",
+    );
+    expect(authMetric).toBeDefined();
+    const attributes = authMetric.sum?.dataPoints?.[0]?.attributes ?? [];
+    const outcomeAttr = attributes.find(
+      (a: { key: string }) => a.key === "outcome",
+    );
+    expect(outcomeAttr?.value?.stringValue).toBe("failure");
   });
 });

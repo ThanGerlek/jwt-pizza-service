@@ -4,9 +4,32 @@ set -u
 
 TIMEOUT="5"
 
-echo "Starting server with timeout ${TIMEOUT}s..."
+# Optional first argument: starting port (defaults to 3000)
+PORT="${1:-3000}"
 
-npm run start &
+# Find a free port starting from $PORT, trying up to 10 successive ports
+is_port_in_use() {
+  lsof -iTCP:"$1" -sTCP:LISTEN -Pn >/dev/null 2>&1
+}
+
+MAX_TRIES=10
+TRIES=0
+ORIGINAL_PORT="$PORT"
+
+while is_port_in_use "$PORT" && [ "$TRIES" -lt "$MAX_TRIES" ]; do
+  echo "Port ${PORT} in use, trying next..."
+  PORT=$((PORT + 1))
+  TRIES=$((TRIES + 1))
+done
+
+if is_port_in_use "$PORT"; then
+  echo "Unable to find a free port starting from ${ORIGINAL_PORT}"
+  exit 1
+fi
+
+echo "Starting server on port ${PORT} with timeout ${TIMEOUT}s..."
+
+npm run start -- "${PORT}" &
 SERVER_PID=$!
 
 cleanup() {

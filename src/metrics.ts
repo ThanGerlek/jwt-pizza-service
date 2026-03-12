@@ -49,8 +49,8 @@ interface OtelPayload {
   }>;
 }
 
-const DEFAULT_FLUSH_INTERVAL_MS = (metrics as any).flushIntervalMs ?? 10_000;
-const DEFAULT_MAX_BATCH_SIZE = (metrics as any).maxBatchSize ?? 1000;
+const DEFAULT_FLUSH_INTERVAL_MS = (metrics as any)?.flushIntervalMs ?? 10_000;
+const DEFAULT_MAX_BATCH_SIZE = (metrics as any)?.maxBatchSize ?? 1000;
 
 interface PeriodicTracker {
   fn: () => void;
@@ -169,9 +169,6 @@ function recordCount(name: string, attributes?: Record<string, string>): void {
   const current = cumulativeMetrics[key];
   const value = (current?.value ?? 0) + 1;
   cumulativeMetrics[key] = { metricName: name, value, attributes };
-  console.log(
-    `Queued count: '${name}' -> ${value} ${JSON.stringify(attributes ?? {})}`,
-  );
 }
 
 function buildCumulativeMetricKey(

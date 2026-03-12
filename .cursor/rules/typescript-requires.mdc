@@ -1,0 +1,17 @@
+---
+description: How to require TypeScript modules from JS at runtime (Node --experimental-strip-types)
+alwaysApply: true
+---
+
+## Requiring TypeScript modules from JavaScript at runtime
+
+This project runs the server with `node --experimental-strip-types` (see `package.json` start script). When **any** `.js` file in `src/` uses `require()` to load a **TypeScript** module (e.g. `src/metrics.ts`), the path **must include the `.ts` extension**.
+
+- **BAD**: `require("./metrics")` or `require("../metrics")`
+- **GOOD**: `require("./metrics.ts")` or `require("../metrics.ts")`
+
+**Why**: With `--experimental-strip-types`, Node can execute `.ts` files but does not add `.ts` to module resolution. The extension must be explicit.
+
+Test files under `test/` that use `require("../src/metrics")` are fine as-is: Jest/Babel resolve that when running tests. Only the runtime entry under `src/` is executed with plain Node, so only `src/` requires need the `.ts` extension.
+
+**If you add new TypeScript modules** that are required from `.js` files in `src/`, use the `.ts` extension in those require paths so `npm run start` and `npm run test:start` keep working.

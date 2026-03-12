@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const config = require("../config.js");
 const { asyncHandler } = require("../endpointHelper.js");
 const { DB, Role } = require("../database/database.js");
-const { trackAuthAttempt } = require("../metrics");
+const { trackAuthAttempt } = require("../metrics.ts");
 
 const authRouter = express.Router();
 

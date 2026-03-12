@@ -8,7 +8,7 @@
     "test": "jest --detectOpenHandles",
     "test:start": "./test-start.sh",
     "lint": "eslint .",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run test:start",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run test:start -- 3100",
     "typecheck": "tsc"
   },
   "license": "MIT",
