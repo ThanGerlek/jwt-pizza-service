@@ -49,24 +49,65 @@ interface OtelPayload {
   }>;
 }
 
-let metricsTrackers: { trackerFn: () => void; delay: number }[] = [];
-let metricsIntervals: ReturnType<typeof setInterval>[] = [];
+const DEFAULT_FLUSH_INTERVAL_MS = (metrics as any).flushIntervalMs ?? 10_000;
+const DEFAULT_MAX_BATCH_SIZE = (metrics as any).maxBatchSize ?? 1000;
 
-function registerMetricsTracker(trackerFn: () => void, delay: number): void {
-  metricsTrackers.push({ trackerFn, delay });
+interface PeriodicTracker {
+  fn: () => void;
+  intervalMs: number;
+  runOnStart: boolean;
+}
+
+let metricsTrackers: PeriodicTracker[] = [];
+let trackerIntervals: ReturnType<typeof setInterval>[] = [];
+let flushIntervalId: ReturnType<typeof setInterval> | null = null;
+
+let pendingMetricEntries: MetricEntry[] = [];
+
+function registerPeriodicMetricsTracker(
+  trackerFn: () => void,
+  intervalMs: number,
+  runOnStart = true,
+): void {
+  metricsTrackers.push({
+    fn: trackerFn,
+    intervalMs,
+    runOnStart,
+  });
 }
 
 function startMetrics(): void {
-  metricsIntervals = metricsTrackers.map((pair) =>
-    setInterval(pair.trackerFn, pair.delay),
-  );
+  // Set up per-tracker intervals
+  metricsTrackers.forEach((tracker) => {
+    if (tracker.runOnStart) {
+      tracker.fn();
+    }
+
+    const intervalId = setInterval(tracker.fn, tracker.intervalMs);
+    trackerIntervals.push(intervalId);
+  });
+
+  // Separate flush loop so batching cadence is decoupled from collection cadence.
+  if (!flushIntervalId) {
+    flushIntervalId = setInterval(() => {
+      flushMetricsBatch();
+    }, DEFAULT_FLUSH_INTERVAL_MS);
+  }
 }
 
 function stopMetrics(): void {
-  metricsIntervals.forEach((intervalId) => {
+  trackerIntervals.forEach((intervalId) => {
     clearInterval(intervalId);
   });
-  metricsIntervals = [];
+  trackerIntervals = [];
+
+  if (flushIntervalId) {
+    clearInterval(flushIntervalId);
+    flushIntervalId = null;
+  }
+
+  // Ensure any queued metrics are sent once on shutdown.
+  flushMetricsBatch();
 }
 
 // Hardware metrics
@@ -84,15 +125,21 @@ function getMemoryUsagePercentage(): number {
   return memoryUsage;
 }
 
-registerMetricsTracker(() => {
-  sendMetricToGrafana("cpu", getCpuUsagePercentage(), "gauge", "%");
-  sendMetricToGrafana("memory", getMemoryUsagePercentage(), "gauge", "%");
+registerPeriodicMetricsTracker(() => {
+  recordValue("cpu", getCpuUsagePercentage(), "gauge", "%");
+  recordValue("memory", getMemoryUsagePercentage(), "gauge", "%");
 }, 1000);
 
 // HTTP metrics
 
 const requests: Record<string, number> = {};
-const stringMetrics: Record<string, number> = {};
+interface CumulativeMetricState {
+  metricName: string;
+  value: number;
+  attributes: Record<string, string> | undefined;
+}
+
+const cumulativeMetrics: Record<string, CumulativeMetricState> = {};
 
 function requestTracker(
   req: { method: string; path: string },
@@ -102,8 +149,7 @@ function requestTracker(
   const endpoint = `[${req.method}] ${req.path}`;
   requests[endpoint] = (requests[endpoint] ?? 0) + 1;
 
-  // Generic string metric that can be grouped by attributes later in Grafana
-  sendStringMetric("http_requests_total", {
+  recordCount("http_requests_total", {
     method: req.method,
     path: req.path,
   });
@@ -111,20 +157,24 @@ function requestTracker(
   next();
 }
 
-function sendStringMetric(
-  metricName: string,
-  attributes?: Record<string, string>,
-): void {
-  const key = buildMetricKey(metricName, attributes);
-  stringMetrics[key] = (stringMetrics[key] ?? 0) + 1;
-  const value = stringMetrics[key];
-  console.log(
-    `Sent string metric: '${metricName}' -> ${value} ${JSON.stringify(attributes ?? {})}`,
-  );
-  sendMetricToGrafana(metricName, value, "sum", "1", attributes);
+function trackAuthAttempt(success: boolean): void {
+  recordCount("auth_attempts_total", {
+    outcome: success ? "success" : "failure",
+  });
 }
 
-function buildMetricKey(
+/** Record one occurrence of a counter identified by name and attributes. */
+function recordCount(name: string, attributes?: Record<string, string>): void {
+  const key = buildCumulativeMetricKey(name, attributes);
+  const current = cumulativeMetrics[key];
+  const value = (current?.value ?? 0) + 1;
+  cumulativeMetrics[key] = { metricName: name, value, attributes };
+  console.log(
+    `Queued count: '${name}' -> ${value} ${JSON.stringify(attributes ?? {})}`,
+  );
+}
+
+function buildCumulativeMetricKey(
   metricName: string,
   attributes?: Record<string, string>,
 ): string {
@@ -137,7 +187,7 @@ function buildMetricKey(
   return `${metricName}|${JSON.stringify(sortedEntries)}`;
 }
 
-function sendMetricToGrafana(
+function enqueueMetric(
   metricName: string,
   metricValue: number,
   type: MetricType,
@@ -171,17 +221,6 @@ function sendMetricToGrafana(
       ],
     },
   };
-  const otelPayload: OtelPayload = {
-    resourceMetrics: [
-      {
-        scopeMetrics: [
-          {
-            metrics: [metricEntry],
-          },
-        ],
-      },
-    ],
-  };
 
   if (type === "sum") {
     const sumData = metricEntry[type] as SumData;
@@ -189,10 +228,52 @@ function sendMetricToGrafana(
     sumData.isMonotonic = true;
   }
 
+  pendingMetricEntries.push(metricEntry);
+
+  if (pendingMetricEntries.length >= DEFAULT_MAX_BATCH_SIZE) {
+    flushMetricsBatch();
+  }
+}
+
+function flushMetricsBatch(): void {
+  if (
+    pendingMetricEntries.length === 0 &&
+    Object.keys(cumulativeMetrics).length === 0
+  ) {
+    return;
+  }
+
+  const entriesToSend: MetricEntry[] = [...pendingMetricEntries];
+  pendingMetricEntries = [];
+
+  // Add cumulative metrics as single entries per key
+  for (const { metricName, value, attributes } of Object.values(
+    cumulativeMetrics,
+  )) {
+    enqueueMetric(metricName, value, "sum", "1", attributes);
+  }
+
+  // Move any metrics that were enqueued during this flush into the batch to send now.
+  entriesToSend.push(...pendingMetricEntries);
+  pendingMetricEntries = [];
+
+  const otelPayload: OtelPayload = {
+    resourceMetrics: [
+      {
+        scopeMetrics: [
+          {
+            metrics: entriesToSend,
+          },
+        ],
+      },
+    ],
+  };
+
   const body = JSON.stringify(otelPayload);
+
   fetch(`${metrics.endpointUrl}`, {
     method: "POST",
-    body: body,
+    body,
     headers: {
       Authorization: `Bearer ${metrics.accountId}:${metrics.apiKey}`,
       "Content-Type": "application/json",
@@ -212,4 +293,22 @@ function sendMetricToGrafana(
     });
 }
 
-export { requestTracker, startMetrics, stopMetrics };
+/** Record a gauge or sum value (one observation per call). */
+function recordValue(
+  name: string,
+  value: number,
+  type: MetricType,
+  unit: MetricUnit,
+  attributes?: Record<string, string>,
+): void {
+  enqueueMetric(name, value, type, unit, attributes);
+}
+
+export {
+  recordCount,
+  recordValue,
+  requestTracker,
+  startMetrics,
+  stopMetrics,
+  trackAuthAttempt,
+};
