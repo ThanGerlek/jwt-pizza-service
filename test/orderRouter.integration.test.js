@@ -1,6 +1,7 @@
 jest.mock("../src/metrics", () => {
   const passThroughMiddleware = (req, res, next) => next();
   return {
+    activeUserTracker: passThroughMiddleware,
     requestTracker: passThroughMiddleware,
     requestLatencyTracker: passThroughMiddleware,
     startMetrics: jest.fn(),

@@ -67,6 +67,10 @@ let flushIntervalId: ReturnType<typeof setInterval> | null = null;
 
 let pendingMetricEntries: MetricEntry[] = [];
 
+// Active user tracking
+const activeUserTimestamps = new Map<number, number>();
+const ACTIVE_USER_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
 function registerPeriodicMetricsTracker(
   trackerFn: () => void,
   intervalMs: number,
@@ -210,6 +214,33 @@ function trackAuthAttempt(success: boolean): void {
     outcome: success ? "success" : "failure",
   });
 }
+
+function activeUserTracker(
+  req: { user?: { id: number } },
+  res: unknown,
+  next: () => void,
+): void {
+  if (req.user?.id) {
+    activeUserTimestamps.set(req.user.id, Date.now());
+  }
+  next();
+}
+
+registerPeriodicMetricsTracker(() => {
+  const now = Date.now();
+  const cutoff = now - ACTIVE_USER_WINDOW_MS;
+
+  let activeCount = 0;
+  activeUserTimestamps.forEach((timestamp, userId) => {
+    if (timestamp < cutoff) {
+      activeUserTimestamps.delete(userId);
+    } else {
+      activeCount++;
+    }
+  });
+
+  recordValue("active_users", activeCount, "gauge", "1");
+}, 60_000);
 
 function trackPizzaCreationSuccess(details: {
   pizzasCount: number;
@@ -447,6 +478,7 @@ function recordValue(
 }
 
 export {
+  activeUserTracker,
   requestLatencyTracker,
   recordCount,
   recordValue,
