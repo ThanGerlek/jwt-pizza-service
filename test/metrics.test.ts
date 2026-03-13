@@ -228,7 +228,8 @@ describe("metrics module", () => {
     const revenuePoint = revenueMetric.sum?.dataPoints?.[0];
     const pizzasPoint = pizzasSoldMetric.sum?.dataPoints?.[0];
 
-    expect(revenuePoint?.asInt ?? revenuePoint?.asDouble).toBeCloseTo(0.0075);
+    // Revenue is sent as integer (millionths) so backend treats it as a counter; 0.0075 * 1e6 = 7500
+    expect(revenuePoint?.asInt ?? revenuePoint?.asDouble).toBe(7500);
     expect(pizzasPoint?.asInt ?? pizzasPoint?.asDouble).toBe(2);
 
     const attrs = creationsMetric.sum?.dataPoints?.[0]?.attributes ?? [];

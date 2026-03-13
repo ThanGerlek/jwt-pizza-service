@@ -52,6 +52,9 @@ interface OtelPayload {
 const DEFAULT_FLUSH_INTERVAL_MS = (metrics as any)?.flushIntervalMs ?? 10_000;
 const DEFAULT_MAX_BATCH_SIZE = (metrics as any)?.maxBatchSize ?? 1000;
 
+// Scale factor for pizza_revenue_total so we send an integer (backend counter semantics). Divide by REVENUE_SCALE in Grafana for revenue in original units.
+const REVENUE_SCALE = 1e6;
+
 interface PeriodicTracker {
   fn: () => void;
   intervalMs: number;
@@ -228,8 +231,8 @@ function trackPizzaCreationSuccess(details: {
   }
 
   recordCount("pizza_creations_total", baseAttributes);
-  recordValue("pizza_revenue_total", revenue, "sum", "1", baseAttributes);
-  recordValue("pizzas_sold_total", pizzasCount, "sum", "1", baseAttributes);
+  addToCumulativeMetric("pizza_revenue_total", revenue, baseAttributes);
+  addToCumulativeMetric("pizzas_sold_total", pizzasCount, baseAttributes);
 }
 
 function trackPizzaCreationFailure(details: {
@@ -293,9 +296,17 @@ function trackPizzaCreationLatency(
 
 /** Record one occurrence of a counter identified by name and attributes. */
 function recordCount(name: string, attributes?: Record<string, string>): void {
+  addToCumulativeMetric(name, 1, attributes);
+}
+
+function addToCumulativeMetric(
+  name: string,
+  amount: number,
+  attributes?: Record<string, string>,
+): void {
   const key = buildCumulativeMetricKey(name, attributes);
   const current = cumulativeMetrics[key];
-  const value = (current?.value ?? 0) + 1;
+  const value = (current?.value ?? 0) + amount;
   cumulativeMetrics[key] = { metricName: name, value, attributes };
 }
 
@@ -373,11 +384,15 @@ function flushMetricsBatch(): void {
   const entriesToSend: MetricEntry[] = [...pendingMetricEntries];
   pendingMetricEntries = [];
 
-  // Add cumulative metrics as single entries per key
+  // Add cumulative metrics as single entries per key. Send revenue as integer so the backend treats it as a counter (so that rate/increase/etc. operations will work).
   for (const { metricName, value, attributes } of Object.values(
     cumulativeMetrics,
   )) {
-    enqueueMetric(metricName, value, "sum", "1", attributes);
+    const sendValue =
+      metricName === "pizza_revenue_total"
+        ? Math.round(value * REVENUE_SCALE)
+        : value;
+    enqueueMetric(metricName, sendValue, "sum", "1", attributes);
   }
 
   // Move any metrics that were enqueued during this flush into the batch to send now.
