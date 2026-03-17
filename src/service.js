@@ -10,6 +10,9 @@ const {
   requestTracker,
   requestLatencyTracker,
 } = require("./metrics.ts");
+const { Logger } = require("./logger.ts");
+
+const logger = new Logger();
 
 const app = express();
 app.use(express.json());
@@ -17,6 +20,7 @@ app.use(setAuthUser);
 app.use(activeUserTracker);
 app.use(requestTracker);
 app.use(requestLatencyTracker);
+app.use(logger.httpLogger);
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
