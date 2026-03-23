@@ -3,11 +3,9 @@ const config = require("../config.js");
 const { Role, DB } = require("../database/database.js");
 const { authRouter } = require("./authRouter.js");
 const { asyncHandler, StatusCodeError } = require("../endpointHelper.js");
-const {
-  trackPizzaCreationFailure,
-  trackPizzaCreationSuccess,
-  trackPizzaCreationLatency,
-} = require("../metrics.ts");
+const { dependencyFactory } = require("../depInjector.ts");
+
+const metrics = dependencyFactory.metricsManager;
 
 const orderRouter = express.Router();
 
@@ -142,14 +140,14 @@ orderRouter.post(
     const j = await r.json();
     if (r.ok) {
       const durationMs = Date.now() - startTime;
-      trackPizzaCreationSuccess({
+      metrics.trackPizzaCreationSuccess({
         pizzasCount,
         revenue,
         franchiseId: order.franchiseId,
         storeId: order.storeId,
         dinerId: req.user.id,
       });
-      trackPizzaCreationLatency("success", durationMs, {
+      metrics.trackPizzaCreationLatency("success", durationMs, {
         franchiseId: order.franchiseId,
         storeId: order.storeId,
         dinerId: req.user.id,
@@ -157,13 +155,13 @@ orderRouter.post(
       res.send({ order, followLinkToEndChaos: j.reportUrl, jwt: j.jwt });
     } else {
       const durationMs = Date.now() - startTime;
-      trackPizzaCreationFailure({
+      metrics.trackPizzaCreationFailure({
         franchiseId: order.franchiseId,
         storeId: order.storeId,
         dinerId: req.user.id,
         reason: "factory_error",
       });
-      trackPizzaCreationLatency("failure", durationMs, {
+      metrics.trackPizzaCreationLatency("failure", durationMs, {
         franchiseId: order.franchiseId,
         storeId: order.storeId,
         dinerId: req.user.id,

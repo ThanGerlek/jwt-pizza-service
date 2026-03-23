@@ -3,7 +3,9 @@ const jwt = require("jsonwebtoken");
 const config = require("../config.js");
 const { asyncHandler } = require("../endpointHelper.js");
 const { DB, Role } = require("../database/database.js");
-const { trackAuthAttempt } = require("../metrics.ts");
+const { dependencyFactory } = require("../depInjector.ts");
+
+const metrics = dependencyFactory.metricsManager;
 
 const authRouter = express.Router();
 
@@ -102,10 +104,10 @@ authRouter.put(
     try {
       const user = await DB.getUser(email, password);
       const auth = await setAuth(user);
-      trackAuthAttempt(true);
+      metrics.trackAuthAttempt(true);
       res.json({ user: user, token: auth });
     } catch (err) {
-      trackAuthAttempt(false);
+      metrics.trackAuthAttempt(false);
       throw err;
     }
   }),
