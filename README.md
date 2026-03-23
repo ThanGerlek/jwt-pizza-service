@@ -40,6 +40,10 @@ You can get the documentation for all endpoints by making the following request.
 curl localhost:3000/api/docs
 ```
 
+## Observability
+
+Structured logging conventions (event types, required fields, and redaction policy) are documented in [`docs/logging-conventions.md`](docs/logging-conventions.md).
+
 ## Development notes
 
 Install the required packages.

@@ -4,6 +4,28 @@ const { createOrderRouter } = require("./routes/orderRouter.js");
 const { createFranchiseRouter } = require("./routes/franchiseRouter.js");
 const { createUserRouter } = require("./routes/userRouter.js");
 const version = require("./version.json");
+
+/**
+ * Logs errors that reached the Express error middleware. Client errors (4xx) are
+ * warn-level without stack; server errors (5xx) are error-level with stack.
+ * @param {{ log: (level: string, type: string, data: object) => void }} logger
+ * @param {Error & { statusCode?: number }} err
+ * @param {{ originalUrl: string, method: string }} req
+ */
+function logRequestError(logger, err, req) {
+  const statusCode = err.statusCode ?? 500;
+  const isClientError = statusCode >= 400 && statusCode < 500;
+  const level = isClientError ? "warn" : "error";
+  const errorPayload = isClientError
+    ? { message: err.message, name: err.name }
+    : { message: err.message, name: err.name, stack: err.stack };
+  logger.log(level, "request-error", {
+    path: req.originalUrl,
+    method: req.method,
+    statusCode,
+    error: errorPayload,
+  });
+}
 function createApp(deps) {
   const app = express();
   const auth = createAuthRouter(deps);
@@ -20,6 +42,7 @@ function createApp(deps) {
     config: deps.config,
     metricsManager: deps.metricsManager,
     fetchImpl: deps.fetchImpl,
+    logger: deps.logger,
   });
   const franchiseRouter = createFranchiseRouter({
     db: deps.db,
@@ -82,6 +105,7 @@ function createApp(deps) {
 
   // Default error handler for all exceptions and errors.
   app.use((err, req, res, next) => {
+    logRequestError(deps.logger, err, req);
     res
       .status(err.statusCode ?? 500)
       .json({ message: err.message, stack: err.stack });

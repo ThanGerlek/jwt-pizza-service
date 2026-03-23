@@ -112,15 +112,63 @@ describe("Service Integration Tests - Edge Cases", () => {
   // Error Handler - Global Error Handling
   // ====================================================================
   describe("Error handler", () => {
-    test("returns error with status code from StatusCodeError", async () => {
+    test("returns and logs error when accessing a protected endpoint when logged out", async () => {
       // Trigger an error by trying to access a protected endpoint without proper auth
       deps.db.isLoggedIn.mockResolvedValueOnce(false);
 
-      const res = await request(app).get("/api/order");
+      const res = await request(app)
+        .get("/api/order")
+        .set("Authorization", "Bearer tok.sig.sgn")
+        .send({ title: "x", description: "y", image: "z", price: 1 });
 
       expect(res.status).toBe(401);
       expect(res.body).toHaveProperty("message");
       expect(res.body.message).toBe("unauthorized");
+      expect(deps.logger.log).toHaveBeenCalledWith(
+        "warn",
+        "auth-unauthorized",
+        expect.objectContaining({
+          method: "GET",
+          path: "/api/order",
+          statusCode: 401,
+        }),
+      );
+    });
+
+    test("returns and logs error when accessing an admin-only endpoint as a diner", async () => {
+      // Trigger a route-level StatusCodeError in orderRouter by attempting to edit a menu as a diner
+      deps.db.isLoggedIn.mockResolvedValueOnce(true);
+      deps.jwt.verify.mockReturnValueOnce({
+        id: 1,
+        name: "diner",
+        email: "d@jwt.com",
+        roles: [{ role: "diner" }],
+      });
+
+      const res = await request(app)
+        .put("/api/order/menu")
+        .set("Authorization", "Bearer tok.sig.sgn")
+        .send({ title: "x", description: "y", image: "z", price: 1 });
+
+      expect(res.status).toBe(403);
+      expect(res.body).toHaveProperty("message");
+      expect(res.body.message).toBe("unable to add menu item");
+      expect(deps.logger.log).toHaveBeenCalledWith(
+        "warn",
+        "request-error",
+        expect.objectContaining({
+          method: "PUT",
+          path: "/api/order/menu",
+          statusCode: 403,
+          error: expect.objectContaining({
+            message: "unable to add menu item",
+          }),
+        }),
+      );
+      const requestErrorCall = deps.logger.log.mock.calls.find(
+        (c) => c[1] === "request-error",
+      );
+      expect(requestErrorCall[2].error).not.toHaveProperty("stack");
     });
 
     test("includes error message in response", async () => {
@@ -131,6 +179,27 @@ describe("Service Integration Tests - Edge Cases", () => {
       expect(res.status).toBe(401);
       expect(res.body.message).toBeTruthy();
       expect(typeof res.body.message).toBe("string");
+    });
+
+    test("logs request-error at error level with stack for 500 responses", async () => {
+      deps.db.getMenu.mockRejectedValueOnce(new Error("db exploded"));
+
+      const res = await request(app).get("/api/order/menu");
+
+      expect(res.status).toBe(500);
+      expect(deps.logger.log).toHaveBeenCalledWith(
+        "error",
+        "request-error",
+        expect.objectContaining({
+          method: "GET",
+          path: "/api/order/menu",
+          statusCode: 500,
+          error: expect.objectContaining({
+            message: "db exploded",
+            stack: expect.any(String),
+          }),
+        }),
+      );
     });
   });
 

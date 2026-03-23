@@ -20,7 +20,7 @@
 */
 
 import config from "./config.js";
-import { safeSerialize } from "./util/util.ts";
+import { sanitizeForLog } from "./util/sanitize.ts";
 
 // TODO Add types
 
@@ -89,10 +89,7 @@ export class GrafanaLogger implements Logger {
   }
 
   private sanitize(logData: any) {
-    return safeSerialize(logData).replace(
-      /"password"\s*:\s*"[^"]*"/g,
-      '"password":"*****"',
-    );
+    return sanitizeForLog(logData);
   }
 
   private sendLogToGrafana(event: any) {

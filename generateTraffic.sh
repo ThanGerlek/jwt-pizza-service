@@ -49,7 +49,7 @@ done &
 pid1=$!
 
 # Simulate a user with an invalid email and password
-invalid_login_frequency=50
+invalid_login_frequency=25
 while true; do
   invalid_login_duration=$(rand_near $invalid_login_frequency)
   result=$(execute_curl "-X PUT \"$host/api/auth\" -d '{\"email\":\"unknown@jwt.com\", \"password\":\"bad\"}' -H 'Content-Type: application/json'")

@@ -44,6 +44,7 @@ describe("order routes metrics", () => {
     // Factory responds successfully
     deps.fetchImpl.mockResolvedValueOnce({
       ok: true,
+      status: 200,
       json: async () => ({
         reportUrl: "http://factory/report/1",
         jwt: "factory.jwt",
@@ -59,6 +60,26 @@ describe("order routes metrics", () => {
     // Assert HTTP behavior
     expect(res.status).toBe(200);
     expect(deps.db.addDinerOrder).toHaveBeenCalledTimes(1);
+    expect(deps.logger.log).toHaveBeenCalledWith(
+      "info",
+      "factory-request",
+      expect.objectContaining({
+        factoryUrl: expect.stringContaining("/api/order"),
+        factoryRequestBody: expect.objectContaining({
+          diner: expect.objectContaining({ id: 10 }),
+        }),
+      }),
+    );
+    expect(deps.logger.log).toHaveBeenCalledWith(
+      "info",
+      "factory-response",
+      expect.objectContaining({
+        ok: true,
+        factoryResponseBody: expect.objectContaining({
+          reportUrl: "http://factory/report/1",
+        }),
+      }),
+    );
 
     // Assert metrics
     expect(deps.metricsManager.trackPizzaCreationSuccess).toHaveBeenCalledTimes(
@@ -109,6 +130,7 @@ describe("order routes metrics", () => {
     // Factory responds with error
     deps.fetchImpl.mockResolvedValueOnce({
       ok: false,
+      status: 500,
       json: async () => ({ reportUrl: "http://factory/report/error" }),
     });
 
@@ -118,6 +140,21 @@ describe("order routes metrics", () => {
       .send(orderBody);
 
     expect(res.status).toBe(500);
+    expect(deps.logger.log).toHaveBeenCalledWith(
+      "info",
+      "factory-request",
+      expect.objectContaining({
+        factoryUrl: expect.stringContaining("/api/order"),
+      }),
+    );
+    expect(deps.logger.log).toHaveBeenCalledWith(
+      "error",
+      "factory-response",
+      expect.objectContaining({
+        ok: false,
+        statusCode: 500,
+      }),
+    );
 
     expect(deps.metricsManager.trackPizzaCreationFailure).toHaveBeenCalledTimes(
       1,

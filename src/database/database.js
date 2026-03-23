@@ -4,6 +4,8 @@ const config = require("../config.js");
 const { StatusCodeError } = require("../endpointHelper.js");
 const { Role } = require("../model/model.js");
 const dbModel = require("./dbModel.js");
+const { GrafanaLogger } = require("../logger.ts");
+const dbLogger = new GrafanaLogger();
 class DB {
   constructor() {
     this.initialized = this.initializeDatabase();
@@ -402,8 +404,29 @@ class DB {
   }
 
   async query(connection, sql, params) {
-    const [results] = await connection.execute(sql, params);
-    return results;
+    const startedAt = Date.now();
+    try {
+      const [results] = await connection.execute(sql, params);
+      dbLogger.log("info", "db-query", {
+        durationMs: Date.now() - startedAt,
+        sql,
+        params,
+        resultType: Array.isArray(results) ? "rows" : "result",
+        rowCount: Array.isArray(results) ? results.length : undefined,
+      });
+      return results;
+    } catch (err) {
+      dbLogger.log("error", "db-query", {
+        durationMs: Date.now() - startedAt,
+        sql,
+        params,
+        error: {
+          message: err?.message,
+          name: err?.name,
+        },
+      });
+      throw err;
+    }
   }
 
   async getID(connection, key, value, table) {

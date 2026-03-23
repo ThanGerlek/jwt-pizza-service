@@ -16,6 +16,10 @@ const mockBcrypt = {
   hash: jest.fn(() => Promise.resolve("hashedPassword")),
   compare: jest.fn(() => Promise.resolve(true)),
 };
+const mockDbLogger = {
+  log: jest.fn(),
+  httpLogger: jest.fn(),
+};
 
 const mockConfig = {
   db: {
@@ -33,6 +37,9 @@ const mockConfig = {
 jest.mock("mysql2/promise", () => mockMysql);
 jest.mock("bcrypt", () => mockBcrypt);
 jest.mock("../src/config.js", () => mockConfig);
+jest.mock("../src/logger.ts", () => ({
+  GrafanaLogger: jest.fn(() => mockDbLogger),
+}));
 
 // Import real DB class after mocking dependencies
 const database = require("../src/database/database.js");
@@ -1035,6 +1042,16 @@ describe("Database Unit Tests", () => {
           "SELECT * FROM test",
           [],
         );
+        expect(mockDbLogger.log).toHaveBeenCalledWith(
+          "info",
+          "db-query",
+          expect.objectContaining({
+            sql: "SELECT * FROM test",
+            params: [],
+            resultType: "rows",
+            rowCount: 1,
+          }),
+        );
       });
 
       test("handles queries without params", async () => {
@@ -1050,6 +1067,26 @@ describe("Database Unit Tests", () => {
         expect(mockConnection.execute).toHaveBeenCalledWith(
           "SELECT * FROM test",
           undefined,
+        );
+      });
+
+      test("logs and rethrows query errors", async () => {
+        mockConnection.execute.mockRejectedValueOnce(new Error("db blew up"));
+
+        await expect(
+          originalDB.query(mockConnection, "SELECT * FROM broken", [1]),
+        ).rejects.toThrow("db blew up");
+
+        expect(mockDbLogger.log).toHaveBeenCalledWith(
+          "error",
+          "db-query",
+          expect.objectContaining({
+            sql: "SELECT * FROM broken",
+            params: [1],
+            error: expect.objectContaining({
+              message: "db blew up",
+            }),
+          }),
         );
       });
     });

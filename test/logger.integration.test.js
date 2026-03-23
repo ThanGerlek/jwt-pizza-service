@@ -66,6 +66,35 @@ describe("GrafanaLogger httpLogger", () => {
   });
 });
 
+describe("GrafanaLogger sanitization", () => {
+  test("redacts confidential fields in nested logs", () => {
+    const logger = new GrafanaLogger();
+    const sendSpy = jest
+      .spyOn(logger, "sendLogToGrafana")
+      .mockImplementation(() => {});
+
+    logger.log("info", "security", {
+      password: "secret-password",
+      token: "tok.sig.sgn",
+      nested: {
+        authorization: "Bearer secret-token",
+        apiKey: "secret-factory-api-key",
+        jwt: "secret-jwt-value",
+      },
+    });
+
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    const [event] = sendSpy.mock.calls[0];
+    const logLine = event.streams[0].values[0][1];
+    expect(logLine).toContain('"password":"*****"');
+    expect(logLine).toContain('"token":"*****"');
+    expect(logLine).toContain('"apiKey":"*****"');
+    expect(logLine).toContain('"jwt":"*****"');
+    expect(logLine).toContain('"authorization":"Bearer *****"');
+    expect(logLine).not.toContain("secret");
+  });
+});
+
 describe("Service wiring", () => {
   test("uses global logger middleware for routes", async () => {
     const httpLogger = jest.fn((req, _res, next) => next());

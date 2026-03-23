@@ -71,8 +71,15 @@ const docs = [
 ];
 
 function createOrderRouter(deps) {
-  const { db, role, authenticateToken, config, metricsManager, fetchImpl } =
-    deps;
+  const {
+    db,
+    role,
+    authenticateToken,
+    config,
+    metricsManager,
+    fetchImpl,
+    logger,
+  } = deps;
   const orderRouter = express.Router();
   orderRouter.docs = docs;
 
@@ -123,23 +130,74 @@ function createOrderRouter(deps) {
         ? orderReq.items.reduce((sum, item) => sum + (item.price ?? 0), 0)
         : 0;
 
-      const r = await fetchImpl(`${config.factory.url}/api/order`, {
-        method: "POST",
-        headers: {
+      const factoryUrl = `${config.factory.url}/api/order`;
+      const factoryRequestBody = {
+        diner: {
+          id: req.user.id,
+          name: req.user.name,
+          email: req.user.email,
+        },
+        order,
+      };
+      logger.log("info", "factory-request", {
+        path: req.originalUrl,
+        method: req.method,
+        factoryUrl,
+        factoryMethod: "POST",
+        factoryHeaders: {
           "Content-Type": "application/json",
           authorization: `Bearer ${config.factory.apiKey}`,
         },
-        body: JSON.stringify({
-          diner: {
-            id: req.user.id,
-            name: req.user.name,
-            email: req.user.email,
-          },
-          order,
-        }),
+        factoryRequestBody,
       });
-      const j = await r.json();
-      if (r.ok) {
+
+      let response;
+      let jsonResult;
+      try {
+        response = await fetchImpl(factoryUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            authorization: `Bearer ${config.factory.apiKey}`,
+          },
+          body: JSON.stringify(factoryRequestBody),
+        });
+        jsonResult = await response.json();
+      } catch (err) {
+        const durationMs = Date.now() - startTime;
+        logger.log("error", "factory-response", {
+          path: req.originalUrl,
+          method: req.method,
+          factoryUrl,
+          durationMs,
+          error: {
+            message: err?.message,
+            name: err?.name,
+          },
+        });
+        metricsManager.trackPizzaCreationFailure({
+          franchiseId: order.franchiseId,
+          storeId: order.storeId,
+          dinerId: req.user.id,
+          reason: "factory_exception",
+        });
+        metricsManager.trackPizzaCreationLatency("failure", durationMs, {
+          franchiseId: order.franchiseId,
+          storeId: order.storeId,
+          dinerId: req.user.id,
+        });
+        throw err;
+      }
+      logger.log(response.ok ? "info" : "error", "factory-response", {
+        path: req.originalUrl,
+        method: req.method,
+        factoryUrl,
+        durationMs: Date.now() - startTime,
+        statusCode: response.status,
+        ok: response.ok,
+        factoryResponseBody: jsonResult,
+      });
+      if (response.ok) {
         const durationMs = Date.now() - startTime;
         metricsManager.trackPizzaCreationSuccess({
           pizzasCount,
@@ -153,7 +211,11 @@ function createOrderRouter(deps) {
           storeId: order.storeId,
           dinerId: req.user.id,
         });
-        res.send({ order, followLinkToEndChaos: j.reportUrl, jwt: j.jwt });
+        res.send({
+          order,
+          followLinkToEndChaos: jsonResult.reportUrl,
+          jwt: jsonResult.jwt,
+        });
       } else {
         const durationMs = Date.now() - startTime;
         metricsManager.trackPizzaCreationFailure({
@@ -169,7 +231,7 @@ function createOrderRouter(deps) {
         });
         res.status(500).send({
           message: "Failed to fulfill order at factory",
-          followLinkToEndChaos: j.reportUrl,
+          followLinkToEndChaos: jsonResult.reportUrl,
         });
       }
     }),

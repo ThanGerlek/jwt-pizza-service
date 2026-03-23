@@ -42,7 +42,7 @@ const docs = [
 ];
 
 function createAuthRouter(deps) {
-  const { db, role, jwt, config, metricsManager } = deps;
+  const { db, role, jwt, config, metricsManager, logger } = deps;
   const authRouter = express.Router();
   authRouter.docs = docs;
 
@@ -65,6 +65,12 @@ function createAuthRouter(deps) {
 
   const authenticateToken = (req, res, next) => {
     if (!req.user) {
+      logger.log("warn", "auth-unauthorized", {
+        path: req.originalUrl,
+        method: req.method,
+        statusCode: 401,
+        message: "unauthorized",
+      });
       return res.status(401).send({ message: "unauthorized" });
     }
     next();
