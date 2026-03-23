@@ -19,32 +19,54 @@
 }
 */
 
-import config from './config.js';
+import config from "./config.js";
+import { safeSerialize } from "./util/util.ts";
 
 // TODO Add types
 
 export interface Logger {
+  httpLogger(req: any, res: any, next: any): void;
   log(level: any, type: any, logData: any): void;
-};
+}
 
 export class GrafanaLogger implements Logger {
-  private httpLogger = (req: any, res: any, next: any) => {
-    let send = res.send;
+  public httpLogger = (req: any, res: any, next: any) => {
+    const send = res.send.bind(res);
+    const json = res.json.bind(res);
+    const end = res.end.bind(res);
+
+    let responseBody: unknown;
+
     res.send = (resBody: any) => {
-      // console.log("Logging.");
+      responseBody = resBody;
+      return send(resBody);
+    };
+
+    res.json = (resBody: any) => {
+      responseBody = resBody;
+      return json(resBody);
+    };
+
+    res.end = (chunk: any, encoding?: any, callback?: any) => {
+      if (responseBody === undefined && chunk !== undefined) {
+        responseBody = chunk;
+      }
+      return end(chunk, encoding, callback);
+    };
+
+    res.on("finish", () => {
+      const statusCode = res.statusCode;
       const logData = {
-        authorized: !!req.headers.authorization,
+        hasAuthorizationHeader: Boolean(req.headers.authorization),
         path: req.originalUrl,
         method: req.method,
-        statusCode: res.statusCode,
-        reqBody: JSON.stringify(req.body),
-        resBody: JSON.stringify(resBody),
+        statusCode,
+        requestBody: req.body,
+        responseBody,
       };
-      const level = this.statusToLogLevel(res.statusCode);
-      this.log(level, 'http', logData);
-      res.send = send;
-      return res.send(resBody);
-    };
+      this.log(this.statusToLogLevel(statusCode), "http", logData);
+    });
+
     next();
   };
 
@@ -57,9 +79,9 @@ export class GrafanaLogger implements Logger {
   }
 
   private statusToLogLevel(statusCode: any) {
-    if (statusCode >= 500) return 'error';
-    if (statusCode >= 400) return 'warn';
-    return 'info';
+    if (statusCode >= 500) return "error";
+    if (statusCode >= 400) return "warn";
+    return "info";
   }
 
   private nowString() {
@@ -67,21 +89,23 @@ export class GrafanaLogger implements Logger {
   }
 
   private sanitize(logData: any) {
-    logData = JSON.stringify(logData);
-    return logData.replace(/\\"password\\":\s*\\"[^"]*\\"/g, '\\"password\\": \\"*****\\"');
+    return safeSerialize(logData).replace(
+      /"password"\s*:\s*"[^"]*"/g,
+      '"password":"*****"',
+    );
   }
 
   private sendLogToGrafana(event: any) {
     const body = JSON.stringify(event);
     fetch(`${config.logs.endpointUrl}`, {
-      method: 'post',
+      method: "post",
       body: body,
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         Authorization: `Bearer ${config.logs.accountId}:${config.logs.apiKey}`,
       },
     }).then((res) => {
-      if (!res.ok) console.log('Failed to send log to Grafana');
+      if (!res.ok) console.log("Failed to send log to Grafana");
     });
   }
 }
