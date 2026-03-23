@@ -9,16 +9,13 @@ describe("Franchise Router Integration Tests", () => {
   let mockLoginAsAdmin;
   let mockLoginAsFranchisee;
   let mockLoginAsDiner;
-  let mockUserFranchisee;
 
   beforeEach(() => {
     ({ request, app, deps } = makeTestApp());
-    ({
-      mockLoginAsAdmin,
-      mockLoginAsFranchisee,
-      mockLoginAsDiner,
-      mockUserFranchisee,
-    } = buildMocks(deps.db, deps.jwt));
+    ({ mockLoginAsAdmin, mockLoginAsFranchisee, mockLoginAsDiner } = buildMocks(
+      deps.db,
+      deps.jwt,
+    ));
   });
 
   // ====================================================================
@@ -173,16 +170,17 @@ describe("Franchise Router Integration Tests", () => {
   // POST /api/franchise/:franchiseId/store - Create store
   // ====================================================================
   describe("POST /api/franchise/:franchiseId/store", () => {
-    const mockFranchise = {
+    const buildMockFranchise = (adminId) => ({
       id: 11,
       name: "pizzaPocket",
-      admins: [mockUserFranchisee],
-    };
+      admins: [{ id: adminId }],
+    });
     const newStore = { name: "SLC" };
     const createdStore = { id: 101, franchiseId: 11, name: "SLC" };
 
     test("admin creates store successfully", async () => {
       mockLoginAsAdmin();
+      const mockFranchise = buildMockFranchise(1234);
 
       deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
       deps.db.createStore.mockResolvedValueOnce(createdStore);
@@ -197,7 +195,8 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("franchisee creates store for their franchise", async () => {
-      mockLoginAsFranchisee();
+      const userData = mockLoginAsFranchisee();
+      const mockFranchise = buildMockFranchise(userData.id);
 
       deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
       deps.db.createStore.mockResolvedValueOnce(createdStore);
@@ -213,6 +212,7 @@ describe("Franchise Router Integration Tests", () => {
 
     test("returns 403 when not admin or franchise owner", async () => {
       mockLoginAsDiner();
+      const mockFranchise = buildMockFranchise(1234);
 
       deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
 
@@ -225,9 +225,9 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("returns 403 when franchisee of a different franchise", async () => {
-      mockLoginAsFranchisee();
+      const userData = mockLoginAsFranchisee();
 
-      const otherMockFranchise = { ...mockFranchise, admins: [] };
+      const otherMockFranchise = buildMockFranchise(userData.id + 1);
       deps.db.getFranchise.mockResolvedValueOnce(otherMockFranchise);
 
       const res = await request(app)
@@ -251,16 +251,17 @@ describe("Franchise Router Integration Tests", () => {
   // DELETE /api/franchise/:franchiseId/store/:storeId - Delete store
   // ====================================================================
   describe("DELETE /api/franchise/:franchiseId/store/:storeId", () => {
-    const mockFranchise = {
+    const buildMockFranchise = (adminId) => ({
       id: 11,
       name: "pizzaPocket",
-      admins: [mockUserFranchisee],
-    };
+      admins: [{ id: adminId }],
+    });
 
     const mockStore = { id: 101 };
 
     test("admin deletes store successfully", async () => {
       mockLoginAsAdmin();
+      const mockFranchise = buildMockFranchise(1234);
 
       deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
       deps.db.deleteStore.mockResolvedValueOnce();
@@ -274,7 +275,8 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("franchisee deletes store from their franchise", async () => {
-      mockLoginAsFranchisee();
+      const userData = mockLoginAsFranchisee();
+      const mockFranchise = buildMockFranchise(userData.id);
 
       deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
       deps.db.deleteStore.mockResolvedValueOnce();
@@ -289,6 +291,7 @@ describe("Franchise Router Integration Tests", () => {
 
     test("returns 403 when not authorized", async () => {
       mockLoginAsDiner();
+      const mockFranchise = buildMockFranchise(1234);
 
       deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
 
@@ -301,7 +304,7 @@ describe("Franchise Router Integration Tests", () => {
 
     test("returns 401 without auth token", async () => {
       const res = await request(app).delete(
-        `/api/franchise/${mockFranchise.id}}/store/${mockStore.id}`,
+        `/api/franchise/11/store/${mockStore.id}`,
       );
 
       expect(res.status).toBe(401);
