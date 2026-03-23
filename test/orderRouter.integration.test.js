@@ -1,35 +1,15 @@
-jest.mock("../src/metrics.ts", () => {
-  const passThroughMiddleware = (req, res, next) => next();
-  return {
-    activeUserTracker: passThroughMiddleware,
-    requestTracker: passThroughMiddleware,
-    requestLatencyTracker: passThroughMiddleware,
-    startMetrics: jest.fn(),
-    stopMetrics: jest.fn(),
-    recordCount: jest.fn(),
-    recordValue: jest.fn(),
-    trackPizzaCreationSuccess: jest.fn(),
-    trackPizzaCreationFailure: jest.fn(),
-    trackPizzaCreationLatency: jest.fn(),
-  };
-});
-
-const {
-  trackPizzaCreationSuccess,
-  trackPizzaCreationFailure,
-  trackPizzaCreationLatency,
-  stopMetrics,
-} = require("../src/metrics");
-
-const { setupMocks } = require("./test_utils/mocked_imports");
-const { request, app, DB, jwt } = setupMocks();
+const { makeTestApp } = require("./test_utils/mocked_imports");
 
 describe("order routes metrics", () => {
+  let request;
+  let app;
+  let deps;
+
   beforeEach(() => {
-    jest.clearAllMocks();
-    DB.isLoggedIn.mockResolvedValue(true);
+    ({ request, app, deps } = makeTestApp());
+    deps.db.isLoggedIn.mockResolvedValue(true);
     // Default JWT payload for authenticated diner
-    jwt.verify.mockReturnValue({
+    deps.jwt.verify.mockReturnValue({
       id: 10,
       name: "pizza diner",
       email: "d@jwt.com",
@@ -37,20 +17,12 @@ describe("order routes metrics", () => {
     });
 
     // Mock factory service fetch
-    global.fetch = jest.fn();
-  });
-
-  afterEach(() => {
-    global.fetch = undefined;
-  });
-
-  afterAll(() => {
-    stopMetrics();
+    deps.fetchImpl.mockReset();
   });
 
   test("successful POST /api/order records pizza creation success metrics with revenue and attributes", async () => {
     // Arrange DB behavior
-    DB.addDinerOrder.mockResolvedValueOnce({
+    deps.db.addDinerOrder.mockResolvedValueOnce({
       id: 1,
       franchiseId: 1,
       storeId: 2,
@@ -70,17 +42,12 @@ describe("order routes metrics", () => {
     };
 
     // Factory responds successfully
-    global.fetch.mockResolvedValueOnce({
+    deps.fetchImpl.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         reportUrl: "http://factory/report/1",
         jwt: "factory.jwt",
       }),
-    });
-
-    // Mock logger fetch call (to Grafana)
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
     });
 
     // Act
@@ -91,21 +58,29 @@ describe("order routes metrics", () => {
 
     // Assert HTTP behavior
     expect(res.status).toBe(200);
-    expect(DB.addDinerOrder).toHaveBeenCalledTimes(1);
+    expect(deps.db.addDinerOrder).toHaveBeenCalledTimes(1);
 
     // Assert metrics
-    expect(trackPizzaCreationSuccess).toHaveBeenCalledTimes(1);
-    expect(trackPizzaCreationLatency).toHaveBeenCalledTimes(1);
-    expect(trackPizzaCreationFailure).not.toHaveBeenCalled();
+    expect(deps.metricsManager.trackPizzaCreationSuccess).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(deps.metricsManager.trackPizzaCreationLatency).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(
+      deps.metricsManager.trackPizzaCreationFailure,
+    ).not.toHaveBeenCalled();
 
-    const successArgs = trackPizzaCreationSuccess.mock.calls[0][0];
+    const successArgs =
+      deps.metricsManager.trackPizzaCreationSuccess.mock.calls[0][0];
     expect(successArgs.pizzasCount).toBe(2);
     expect(successArgs.revenue).toBeCloseTo(0.15);
     expect(successArgs.franchiseId).toBe(1);
     expect(successArgs.storeId).toBe(2);
     expect(successArgs.dinerId).toBe(10);
 
-    const latencyArgs = trackPizzaCreationLatency.mock.calls[0];
+    const latencyArgs =
+      deps.metricsManager.trackPizzaCreationLatency.mock.calls[0];
     expect(latencyArgs[0]).toBe("success");
     // latencyArgs[1] is durationMs – just assert it is a positive number
     expect(typeof latencyArgs[1]).toBe("number");
@@ -118,7 +93,7 @@ describe("order routes metrics", () => {
   });
 
   test("failed factory call records pizza creation failure metrics and failure latency", async () => {
-    DB.addDinerOrder.mockResolvedValueOnce({
+    deps.db.addDinerOrder.mockResolvedValueOnce({
       id: 2,
       franchiseId: 3,
       storeId: 4,
@@ -132,14 +107,9 @@ describe("order routes metrics", () => {
     };
 
     // Factory responds with error
-    global.fetch.mockResolvedValueOnce({
+    deps.fetchImpl.mockResolvedValueOnce({
       ok: false,
       json: async () => ({ reportUrl: "http://factory/report/error" }),
-    });
-
-    // Mock logger fetch call (to Grafana)
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
     });
 
     const res = await request(app)
@@ -149,11 +119,18 @@ describe("order routes metrics", () => {
 
     expect(res.status).toBe(500);
 
-    expect(trackPizzaCreationFailure).toHaveBeenCalledTimes(1);
-    expect(trackPizzaCreationLatency).toHaveBeenCalledTimes(1);
-    expect(trackPizzaCreationSuccess).not.toHaveBeenCalled();
+    expect(deps.metricsManager.trackPizzaCreationFailure).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(deps.metricsManager.trackPizzaCreationLatency).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(
+      deps.metricsManager.trackPizzaCreationSuccess,
+    ).not.toHaveBeenCalled();
 
-    const failureArgs = trackPizzaCreationFailure.mock.calls[0][0];
+    const failureArgs =
+      deps.metricsManager.trackPizzaCreationFailure.mock.calls[0][0];
     expect(failureArgs).toMatchObject({
       franchiseId: 3,
       storeId: 4,
@@ -161,7 +138,8 @@ describe("order routes metrics", () => {
       reason: "factory_error",
     });
 
-    const latencyArgs = trackPizzaCreationLatency.mock.calls[0];
+    const latencyArgs =
+      deps.metricsManager.trackPizzaCreationLatency.mock.calls[0];
     expect(latencyArgs[0]).toBe("failure");
     expect(typeof latencyArgs[1]).toBe("number");
     expect(latencyArgs[1]).toBeGreaterThanOrEqual(0);

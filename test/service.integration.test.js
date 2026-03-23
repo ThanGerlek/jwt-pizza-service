@@ -1,14 +1,12 @@
-const { stopMetrics } = require("../src/metrics");
-const { setupMocks } = require("./test_utils/mocked_imports");
-const { request, app } = setupMocks();
+const { makeTestApp } = require("./test_utils/mocked_imports");
 
 describe("Service Integration Tests - Edge Cases", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+  let request;
+  let app;
+  let deps;
 
-  afterAll(() => {
-    stopMetrics();
+  beforeEach(() => {
+    ({ request, app, deps } = makeTestApp());
   });
 
   // ====================================================================
@@ -90,10 +88,18 @@ describe("Service Integration Tests - Edge Cases", () => {
       expect(res.headers["content-type"]).toMatch(/json/);
     }
 
-    const invalidEndpoints = ["/api/idonotexist", "/api/nonexistent/deeply/nested/path"];
+    const invalidEndpoints = [
+      "/api/idonotexist",
+      "/api/nonexistent/deeply/nested/path",
+    ];
 
     test("returns 404 for all four methods and for short and long paths", async () => {
-      const fetchFuncs = [request(app).get, request(app).post, request(app).put, request(app).delete];
+      const fetchFuncs = [
+        request(app).get,
+        request(app).post,
+        request(app).put,
+        request(app).delete,
+      ];
       for (const fetchFunc of fetchFuncs) {
         for (const invalidEndpoint of invalidEndpoints) {
           await expect404Error(fetchFunc, invalidEndpoint);
@@ -108,8 +114,7 @@ describe("Service Integration Tests - Edge Cases", () => {
   describe("Error handler", () => {
     test("returns error with status code from StatusCodeError", async () => {
       // Trigger an error by trying to access a protected endpoint without proper auth
-      const { DB } = require("../src/database/database.js");
-      DB.isLoggedIn.mockResolvedValueOnce(false);
+      deps.db.isLoggedIn.mockResolvedValueOnce(false);
 
       const res = await request(app).get("/api/order");
 
@@ -119,8 +124,7 @@ describe("Service Integration Tests - Edge Cases", () => {
     });
 
     test("includes error message in response", async () => {
-      const { DB } = require("../src/database/database.js");
-      DB.isLoggedIn.mockResolvedValueOnce(false);
+      deps.db.isLoggedIn.mockResolvedValueOnce(false);
 
       const res = await request(app).delete("/api/auth");
 

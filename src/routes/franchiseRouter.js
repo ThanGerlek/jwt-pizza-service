@@ -1,11 +1,6 @@
 const express = require("express");
-const { DB, Role } = require("../database/database.js");
-const { authRouter } = require("./authRouter.js");
 const { StatusCodeError, asyncHandler } = require("../endpointHelper.js");
-
-const franchiseRouter = express.Router();
-
-franchiseRouter.docs = [
+const docs = [
   {
     method: "GET",
     path: "/api/franchise?page=0&limit=10&name=*",
@@ -76,97 +71,105 @@ franchiseRouter.docs = [
   },
 ];
 
-// getFranchises
-franchiseRouter.get(
-  "/",
-  asyncHandler(async (req, res) => {
-    const [franchises, more] = await DB.getFranchises(
-      req.user,
-      req.query.page,
-      req.query.limit,
-      req.query.name,
-    );
-    res.json({ franchises, more });
-  }),
-);
+function createFranchiseRouter(deps) {
+  const { db, role, authenticateToken } = deps;
+  const franchiseRouter = express.Router();
+  franchiseRouter.docs = docs;
 
-// getUserFranchises
-franchiseRouter.get(
-  "/:userId",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    let result = [];
-    const userId = Number(req.params.userId);
-    if (req.user.id === userId || req.user.isRole(Role.Admin)) {
-      result = await DB.getUserFranchises(userId);
-    }
+  // getFranchises
+  franchiseRouter.get(
+    "/",
+    asyncHandler(async (req, res) => {
+      const [franchises, more] = await db.getFranchises(
+        req.user,
+        req.query.page,
+        req.query.limit,
+        req.query.name,
+      );
+      res.json({ franchises, more });
+    }),
+  );
 
-    res.json(result);
-  }),
-);
+  // getUserFranchises
+  franchiseRouter.get(
+    "/:userId",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      let result = [];
+      const userId = Number(req.params.userId);
+      if (req.user.id === userId || req.user.isRole(role.Admin)) {
+        result = await db.getUserFranchises(userId);
+      }
 
-// createFranchise
-franchiseRouter.post(
-  "/",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    if (!req.user.isRole(Role.Admin)) {
-      throw new StatusCodeError("unable to create a franchise", 403);
-    }
+      res.json(result);
+    }),
+  );
 
-    const franchise = req.body;
-    res.send(await DB.createFranchise(franchise));
-  }),
-);
+  // createFranchise
+  franchiseRouter.post(
+    "/",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      if (!req.user.isRole(role.Admin)) {
+        throw new StatusCodeError("unable to create a franchise", 403);
+      }
 
-// deleteFranchise
-franchiseRouter.delete(
-  "/:franchiseId",
-  asyncHandler(async (req, res) => {
-    const franchiseId = Number(req.params.franchiseId);
-    await DB.deleteFranchise(franchiseId);
-    res.json({ message: "franchise deleted" });
-  }),
-);
+      const franchise = req.body;
+      res.send(await db.createFranchise(franchise));
+    }),
+  );
 
-// createStore
-franchiseRouter.post(
-  "/:franchiseId/store",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    const franchiseId = Number(req.params.franchiseId);
-    const franchise = await DB.getFranchise({ id: franchiseId });
-    if (
-      !franchise ||
-      (!req.user.isRole(Role.Admin) &&
-        !franchise.admins.some((admin) => admin.id === req.user.id))
-    ) {
-      throw new StatusCodeError("unable to create a store", 403);
-    }
+  // deleteFranchise
+  franchiseRouter.delete(
+    "/:franchiseId",
+    asyncHandler(async (req, res) => {
+      const franchiseId = Number(req.params.franchiseId);
+      await db.deleteFranchise(franchiseId);
+      res.json({ message: "franchise deleted" });
+    }),
+  );
 
-    res.send(await DB.createStore(franchise.id, req.body));
-  }),
-);
+  // createStore
+  franchiseRouter.post(
+    "/:franchiseId/store",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      const franchiseId = Number(req.params.franchiseId);
+      const franchise = await db.getFranchise({ id: franchiseId });
+      if (
+        !franchise ||
+        (!req.user.isRole(role.Admin) &&
+          !franchise.admins.some((admin) => admin.id === req.user.id))
+      ) {
+        throw new StatusCodeError("unable to create a store", 403);
+      }
 
-// deleteStore
-franchiseRouter.delete(
-  "/:franchiseId/store/:storeId",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    const franchiseId = Number(req.params.franchiseId);
-    const franchise = await DB.getFranchise({ id: franchiseId });
-    if (
-      !franchise ||
-      (!req.user.isRole(Role.Admin) &&
-        !franchise.admins.some((admin) => admin.id === req.user.id))
-    ) {
-      throw new StatusCodeError("unable to delete a store", 403);
-    }
+      res.send(await db.createStore(franchise.id, req.body));
+    }),
+  );
 
-    const storeId = Number(req.params.storeId);
-    await DB.deleteStore(franchiseId, storeId);
-    res.json({ message: "store deleted" });
-  }),
-);
+  // deleteStore
+  franchiseRouter.delete(
+    "/:franchiseId/store/:storeId",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      const franchiseId = Number(req.params.franchiseId);
+      const franchise = await db.getFranchise({ id: franchiseId });
+      if (
+        !franchise ||
+        (!req.user.isRole(role.Admin) &&
+          !franchise.admins.some((admin) => admin.id === req.user.id))
+      ) {
+        throw new StatusCodeError("unable to delete a store", 403);
+      }
 
-module.exports = franchiseRouter;
+      const storeId = Number(req.params.storeId);
+      await db.deleteStore(franchiseId, storeId);
+      res.json({ message: "store deleted" });
+    }),
+  );
+
+  return franchiseRouter;
+}
+
+module.exports = { createFranchiseRouter };

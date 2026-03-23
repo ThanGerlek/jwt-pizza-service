@@ -1,11 +1,6 @@
 const express = require("express");
 const { asyncHandler } = require("../endpointHelper.js");
-const { DB, Role } = require("../database/database.js");
-const { authRouter, setAuth } = require("./authRouter.js");
-
-const userRouter = express.Router();
-
-userRouter.docs = [
+const docs = [
   {
     method: "GET",
     path: "/api/user/me",
@@ -37,49 +32,57 @@ userRouter.docs = [
   },
 ];
 
-// getUser
-userRouter.get(
-  "/me",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    res.json(req.user);
-  }),
-);
+function createUserRouter(deps) {
+  const { db, role, authenticateToken, setAuth } = deps;
+  const userRouter = express.Router();
+  userRouter.docs = docs;
 
-// updateUser
-userRouter.put(
-  "/:userId",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    const { name, email, password } = req.body;
-    const userId = Number(req.params.userId);
-    const user = req.user;
-    if (user.id !== userId && !user.isRole(Role.Admin)) {
-      return res.status(403).json({ message: "unauthorized" });
-    }
+  // getUser
+  userRouter.get(
+    "/me",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      res.json(req.user);
+    }),
+  );
 
-    const updatedUser = await DB.updateUser(userId, name, email, password);
-    const auth = await setAuth(updatedUser);
-    res.json({ user: updatedUser, token: auth });
-  }),
-);
+  // updateUser
+  userRouter.put(
+    "/:userId",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      const { name, email, password } = req.body;
+      const userId = Number(req.params.userId);
+      const user = req.user;
+      if (user.id !== userId && !user.isRole(role.Admin)) {
+        return res.status(403).json({ message: "unauthorized" });
+      }
 
-// deleteUser
-userRouter.delete(
-  "/:userId",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    res.json({ message: "not implemented" });
-  }),
-);
+      const updatedUser = await db.updateUser(userId, name, email, password);
+      const auth = await setAuth(updatedUser);
+      res.json({ user: updatedUser, token: auth });
+    }),
+  );
 
-// listUsers
-userRouter.get(
-  "/",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    res.json({ message: "not implemented", users: [], more: false });
-  }),
-);
+  // deleteUser
+  userRouter.delete(
+    "/:userId",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      res.json({ message: "not implemented" });
+    }),
+  );
 
-module.exports = userRouter;
+  // listUsers
+  userRouter.get(
+    "/",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      res.json({ message: "not implemented", users: [], more: false });
+    }),
+  );
+
+  return userRouter;
+}
+
+module.exports = { createUserRouter };

@@ -1,15 +1,6 @@
 const express = require("express");
-const jwt = require("jsonwebtoken");
-const config = require("../config.js");
 const { asyncHandler } = require("../endpointHelper.js");
-const { DB, Role } = require("../database/database.js");
-const { dependencyFactory } = require("../depInjector.ts");
-
-const metrics = dependencyFactory.metricsManager;
-
-const authRouter = express.Router();
-
-authRouter.docs = [
+const docs = [
   {
     method: "POST",
     path: "/api/auth",
@@ -50,90 +41,97 @@ authRouter.docs = [
   },
 ];
 
-async function setAuthUser(req, res, next) {
-  const token = readAuthToken(req);
-  if (token) {
-    try {
-      if (await DB.isLoggedIn(token)) {
-        // Check the database to make sure the token is valid.
-        req.user = jwt.verify(token, config.jwtSecret);
-        req.user.isRole = (role) =>
-          !!req.user.roles.find((r) => r.role === role);
+function createAuthRouter(deps) {
+  const { db, role, jwt, config, metricsManager } = deps;
+  const authRouter = express.Router();
+  authRouter.docs = docs;
+
+  async function setAuthUser(req, res, next) {
+    const token = readAuthToken(req);
+    if (token) {
+      try {
+        if (await db.isLoggedIn(token)) {
+          // Check the database to make sure the token is valid.
+          req.user = jwt.verify(token, config.jwtSecret);
+          req.user.isRole = (targetRole) =>
+            !!req.user.roles.find((r) => r.role === targetRole);
+        }
+      } catch {
+        req.user = null;
       }
-    } catch {
-      req.user = null;
     }
+    next();
   }
-  next();
-}
 
-// Authenticate token
-authRouter.authenticateToken = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).send({ message: "unauthorized" });
-  }
-  next();
-};
-
-// register
-authRouter.post(
-  "/",
-  asyncHandler(async (req, res) => {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password) {
-      return res
-        .status(400)
-        .json({ message: "name, email, and password are required" });
+  const authenticateToken = (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).send({ message: "unauthorized" });
     }
-    const user = await DB.addUser({
-      name,
-      email,
-      password,
-      roles: [{ role: Role.Diner }],
-    });
-    const auth = await setAuth(user);
-    res.json({ user: user, token: auth });
-  }),
-);
+    next();
+  };
 
-// login
-authRouter.put(
-  "/",
-  asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
-    try {
-      const user = await DB.getUser(email, password);
+  // register
+  authRouter.post(
+    "/",
+    asyncHandler(async (req, res) => {
+      const { name, email, password } = req.body;
+      if (!name || !email || !password) {
+        return res
+          .status(400)
+          .json({ message: "name, email, and password are required" });
+      }
+      const user = await db.addUser({
+        name,
+        email,
+        password,
+        roles: [{ role: role.Diner }],
+      });
       const auth = await setAuth(user);
-      metrics.trackAuthAttempt(true);
       res.json({ user: user, token: auth });
-    } catch (err) {
-      metrics.trackAuthAttempt(false);
-      throw err;
-    }
-  }),
-);
+    }),
+  );
 
-// logout
-authRouter.delete(
-  "/",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    await clearAuth(req);
-    res.json({ message: "logout successful" });
-  }),
-);
+  // login
+  authRouter.put(
+    "/",
+    asyncHandler(async (req, res) => {
+      const { email, password } = req.body;
+      try {
+        const user = await db.getUser(email, password);
+        const auth = await setAuth(user);
+        metricsManager.trackAuthAttempt(true);
+        res.json({ user: user, token: auth });
+      } catch (err) {
+        metricsManager.trackAuthAttempt(false);
+        throw err;
+      }
+    }),
+  );
 
-async function setAuth(user) {
-  const token = jwt.sign(user, config.jwtSecret);
-  await DB.loginUser(user.id, token);
-  return token;
-}
+  // logout
+  authRouter.delete(
+    "/",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      await clearAuth(req);
+      res.json({ message: "logout successful" });
+    }),
+  );
 
-async function clearAuth(req) {
-  const token = readAuthToken(req);
-  if (token) {
-    await DB.logoutUser(token);
+  async function setAuth(user) {
+    const token = jwt.sign(user, config.jwtSecret);
+    await db.loginUser(user.id, token);
+    return token;
   }
+
+  async function clearAuth(req) {
+    const token = readAuthToken(req);
+    if (token) {
+      await db.logoutUser(token);
+    }
+  }
+
+  return { authRouter, setAuthUser, setAuth, authenticateToken };
 }
 
 function readAuthToken(req) {
@@ -144,4 +142,4 @@ function readAuthToken(req) {
   return null;
 }
 
-module.exports = { authRouter, setAuthUser, setAuth };
+module.exports = { createAuthRouter };

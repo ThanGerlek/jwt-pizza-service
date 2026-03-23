@@ -1,15 +1,6 @@
 const express = require("express");
-const config = require("../config.js");
-const { Role, DB } = require("../database/database.js");
-const { authRouter } = require("./authRouter.js");
 const { asyncHandler, StatusCodeError } = require("../endpointHelper.js");
-const { dependencyFactory } = require("../depInjector.ts");
-
-const metrics = dependencyFactory.metricsManager;
-
-const orderRouter = express.Router();
-
-orderRouter.docs = [
+const docs = [
   {
     method: "GET",
     path: "/api/order/menu",
@@ -79,99 +70,112 @@ orderRouter.docs = [
   },
 ];
 
-// getMenu
-orderRouter.get(
-  "/menu",
-  asyncHandler(async (req, res) => {
-    res.send(await DB.getMenu());
-  }),
-);
+function createOrderRouter(deps) {
+  const { db, role, authenticateToken, config, metricsManager, fetchImpl } =
+    deps;
+  const orderRouter = express.Router();
+  orderRouter.docs = docs;
 
-// addMenuItem
-orderRouter.put(
-  "/menu",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    if (!req.user.isRole(Role.Admin)) {
-      throw new StatusCodeError("unable to add menu item", 403);
-    }
+  // getMenu
+  orderRouter.get(
+    "/menu",
+    asyncHandler(async (req, res) => {
+      res.send(await db.getMenu());
+    }),
+  );
 
-    const addMenuItemReq = req.body;
-    await DB.addMenuItem(addMenuItemReq);
-    res.send(await DB.getMenu());
-  }),
-);
+  // addMenuItem
+  orderRouter.put(
+    "/menu",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      if (!req.user.isRole(role.Admin)) {
+        throw new StatusCodeError("unable to add menu item", 403);
+      }
 
-// getOrders
-orderRouter.get(
-  "/",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    res.json(await DB.getOrders(req.user, req.query.page));
-  }),
-);
+      const addMenuItemReq = req.body;
+      await db.addMenuItem(addMenuItemReq);
+      res.send(await db.getMenu());
+    }),
+  );
 
-// createOrder
-orderRouter.post(
-  "/",
-  authRouter.authenticateToken,
-  asyncHandler(async (req, res) => {
-    const startTime = Date.now();
-    const orderReq = req.body;
-    const order = await DB.addDinerOrder(req.user, orderReq);
-    const pizzasCount = Array.isArray(orderReq.items)
-      ? orderReq.items.length
-      : 0;
-    const revenue = Array.isArray(orderReq.items)
-      ? orderReq.items.reduce((sum, item) => sum + (item.price ?? 0), 0)
-      : 0;
+  // getOrders
+  orderRouter.get(
+    "/",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      res.json(await db.getOrders(req.user, req.query.page));
+    }),
+  );
 
-    const r = await fetch(`${config.factory.url}/api/order`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        authorization: `Bearer ${config.factory.apiKey}`,
-      },
-      body: JSON.stringify({
-        diner: { id: req.user.id, name: req.user.name, email: req.user.email },
-        order,
-      }),
-    });
-    const j = await r.json();
-    if (r.ok) {
-      const durationMs = Date.now() - startTime;
-      metrics.trackPizzaCreationSuccess({
-        pizzasCount,
-        revenue,
-        franchiseId: order.franchiseId,
-        storeId: order.storeId,
-        dinerId: req.user.id,
+  // createOrder
+  orderRouter.post(
+    "/",
+    authenticateToken,
+    asyncHandler(async (req, res) => {
+      const startTime = Date.now();
+      const orderReq = req.body;
+      const order = await db.addDinerOrder(req.user, orderReq);
+      const pizzasCount = Array.isArray(orderReq.items)
+        ? orderReq.items.length
+        : 0;
+      const revenue = Array.isArray(orderReq.items)
+        ? orderReq.items.reduce((sum, item) => sum + (item.price ?? 0), 0)
+        : 0;
+
+      const r = await fetchImpl(`${config.factory.url}/api/order`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${config.factory.apiKey}`,
+        },
+        body: JSON.stringify({
+          diner: {
+            id: req.user.id,
+            name: req.user.name,
+            email: req.user.email,
+          },
+          order,
+        }),
       });
-      metrics.trackPizzaCreationLatency("success", durationMs, {
-        franchiseId: order.franchiseId,
-        storeId: order.storeId,
-        dinerId: req.user.id,
-      });
-      res.send({ order, followLinkToEndChaos: j.reportUrl, jwt: j.jwt });
-    } else {
-      const durationMs = Date.now() - startTime;
-      metrics.trackPizzaCreationFailure({
-        franchiseId: order.franchiseId,
-        storeId: order.storeId,
-        dinerId: req.user.id,
-        reason: "factory_error",
-      });
-      metrics.trackPizzaCreationLatency("failure", durationMs, {
-        franchiseId: order.franchiseId,
-        storeId: order.storeId,
-        dinerId: req.user.id,
-      });
-      res.status(500).send({
-        message: "Failed to fulfill order at factory",
-        followLinkToEndChaos: j.reportUrl,
-      });
-    }
-  }),
-);
+      const j = await r.json();
+      if (r.ok) {
+        const durationMs = Date.now() - startTime;
+        metricsManager.trackPizzaCreationSuccess({
+          pizzasCount,
+          revenue,
+          franchiseId: order.franchiseId,
+          storeId: order.storeId,
+          dinerId: req.user.id,
+        });
+        metricsManager.trackPizzaCreationLatency("success", durationMs, {
+          franchiseId: order.franchiseId,
+          storeId: order.storeId,
+          dinerId: req.user.id,
+        });
+        res.send({ order, followLinkToEndChaos: j.reportUrl, jwt: j.jwt });
+      } else {
+        const durationMs = Date.now() - startTime;
+        metricsManager.trackPizzaCreationFailure({
+          franchiseId: order.franchiseId,
+          storeId: order.storeId,
+          dinerId: req.user.id,
+          reason: "factory_error",
+        });
+        metricsManager.trackPizzaCreationLatency("failure", durationMs, {
+          franchiseId: order.franchiseId,
+          storeId: order.storeId,
+          dinerId: req.user.id,
+        });
+        res.status(500).send({
+          message: "Failed to fulfill order at factory",
+          followLinkToEndChaos: j.reportUrl,
+        });
+      }
+    }),
+  );
 
-module.exports = orderRouter;
+  return orderRouter;
+}
+
+module.exports = { createOrderRouter };

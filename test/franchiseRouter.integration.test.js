@@ -1,38 +1,37 @@
-const { stopMetrics } = require("../src/metrics");
-const { setupMocks } = require("./test_utils/mocked_imports");
-const { request, app, DB, jwt } = setupMocks();
+const { makeTestApp } = require("./test_utils/mocked_imports");
 
 const buildMocks = require("./test_utils/test_utils");
-const {
-  mockLoginAsAdmin,
-  mockLoginAsFranchisee,
-  mockLoginAsDiner,
-  mockUserFranchisee,
-} = buildMocks(DB, jwt);
-
 
 describe("Franchise Router Integration Tests", () => {
+  let request;
+  let app;
+  let deps;
+  let mockLoginAsAdmin;
+  let mockLoginAsFranchisee;
+  let mockLoginAsDiner;
+  let mockUserFranchisee;
+
   beforeEach(() => {
-    jest.clearAllMocks();
+    ({ request, app, deps } = makeTestApp());
+    ({
+      mockLoginAsAdmin,
+      mockLoginAsFranchisee,
+      mockLoginAsDiner,
+      mockUserFranchisee,
+    } = buildMocks(deps.db, deps.jwt));
   });
 
-  afterAll(() => {
-    stopMetrics();
-  });
-
-  
   // ====================================================================
   // GET /api/franchise - List all franchises
   // ====================================================================
   describe("GET /api/franchise", () => {
-
     const mockFranchises = [
       { id: 11, name: "pizzaPocket", stores: [{ id: 101, name: "SLC" }] },
       { id: 12, name: "pizzaHut", stores: [{ id: 102, name: "NYC" }] },
     ];
 
     test("returns franchises with pagination", async () => {
-      DB.getFranchises.mockResolvedValueOnce([mockFranchises, false]);
+      deps.db.getFranchises.mockResolvedValueOnce([mockFranchises, false]);
 
       const res = await request(app).get("/api/franchise");
 
@@ -41,7 +40,7 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("handles query params", async () => {
-      DB.getFranchises.mockResolvedValueOnce([mockFranchises, true]);
+      deps.db.getFranchises.mockResolvedValueOnce([mockFranchises, true]);
 
       const res = await request(app).get(
         "/api/franchise?page=1&limit=5&name=pizza",
@@ -56,7 +55,6 @@ describe("Franchise Router Integration Tests", () => {
   // GET /api/franchise/:userId - Get user's franchises
   // ====================================================================
   describe("GET /api/franchise/:userId", () => {
-
     const mockFranchises = [
       { id: 11, name: "pizzaPocket", stores: [], admins: [] },
       { id: 12, name: "pizzaHut", stores: [], admins: [] },
@@ -64,7 +62,7 @@ describe("Franchise Router Integration Tests", () => {
 
     test("user can view their own franchises", async () => {
       const userData = mockLoginAsFranchisee();
-      DB.getUserFranchises.mockResolvedValueOnce(mockFranchises);
+      deps.db.getUserFranchises.mockResolvedValueOnce(mockFranchises);
 
       const res = await request(app)
         .get(`/api/franchise/${userData.id}`)
@@ -77,7 +75,7 @@ describe("Franchise Router Integration Tests", () => {
     test("admin can view any user's franchises", async () => {
       // TODO Is this identical to the above?
       const userData = mockLoginAsAdmin();
-      DB.getUserFranchises.mockResolvedValueOnce(mockFranchises);
+      deps.db.getUserFranchises.mockResolvedValueOnce(mockFranchises);
 
       const res = await request(app)
         .get(`/api/franchise/${userData.id}`)
@@ -90,8 +88,8 @@ describe("Franchise Router Integration Tests", () => {
     test("returns empty array when not authorized", async () => {
       const userData = mockLoginAsDiner();
       const wrongUserId = userData.id + 1;
-      DB.getUserFranchises.mockResolvedValueOnce(mockFranchises);  // Should not be returned
-      
+      deps.db.getUserFranchises.mockResolvedValueOnce(mockFranchises); // Should not be returned
+
       const res = await request(app)
         .get(`/api/franchise/${wrongUserId}`)
         .set("Authorization", "Bearer tok.sig.sgn");
@@ -124,7 +122,7 @@ describe("Franchise Router Integration Tests", () => {
         admins: [{ id: 10, email: "f@test.com", name: "Franchisee" }],
       };
 
-      DB.createFranchise.mockResolvedValueOnce(createdFranchise);
+      deps.db.createFranchise.mockResolvedValueOnce(createdFranchise);
 
       const res = await request(app)
         .post("/api/franchise")
@@ -159,11 +157,10 @@ describe("Franchise Router Integration Tests", () => {
   // DELETE /api/franchise/:franchiseId - Delete franchise
   // ====================================================================
   describe("DELETE /api/franchise/:franchiseId", () => {
-
     // TODO Require auth? It currently doesn't.
 
     test("deletes franchise successfully", async () => {
-      DB.deleteFranchise.mockResolvedValueOnce();
+      deps.db.deleteFranchise.mockResolvedValueOnce();
 
       const res = await request(app).delete("/api/franchise/5");
 
@@ -171,25 +168,24 @@ describe("Franchise Router Integration Tests", () => {
       expect(res.body.message).toBe("franchise deleted");
     });
   });
-  
+
   // ====================================================================
   // POST /api/franchise/:franchiseId/store - Create store
   // ====================================================================
   describe("POST /api/franchise/:franchiseId/store", () => {
-
     const mockFranchise = {
       id: 11,
       name: "pizzaPocket",
       admins: [mockUserFranchisee],
     };
     const newStore = { name: "SLC" };
-    const createdStore = { id: 101, franchiseId: mockFranchise.id, name: "SLC" };
+    const createdStore = { id: 101, franchiseId: 11, name: "SLC" };
 
     test("admin creates store successfully", async () => {
       mockLoginAsAdmin();
 
-      DB.getFranchise.mockResolvedValueOnce(mockFranchise);
-      DB.createStore.mockResolvedValueOnce(createdStore);
+      deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
+      deps.db.createStore.mockResolvedValueOnce(createdStore);
 
       const res = await request(app)
         .post(`/api/franchise/${mockFranchise.id}/store`)
@@ -203,8 +199,8 @@ describe("Franchise Router Integration Tests", () => {
     test("franchisee creates store for their franchise", async () => {
       mockLoginAsFranchisee();
 
-      DB.getFranchise.mockResolvedValueOnce(mockFranchise);
-      DB.createStore.mockResolvedValueOnce(createdStore);
+      deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
+      deps.db.createStore.mockResolvedValueOnce(createdStore);
 
       const res = await request(app)
         .post(`/api/franchise/${mockFranchise.id}/store`)
@@ -218,7 +214,7 @@ describe("Franchise Router Integration Tests", () => {
     test("returns 403 when not admin or franchise owner", async () => {
       mockLoginAsDiner();
 
-      DB.getFranchise.mockResolvedValueOnce(mockFranchise);
+      deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
 
       const res = await request(app)
         .post(`/api/franchise/${mockFranchise.id}/store`)
@@ -231,8 +227,8 @@ describe("Franchise Router Integration Tests", () => {
     test("returns 403 when franchisee of a different franchise", async () => {
       mockLoginAsFranchisee();
 
-      const otherMockFranchise = {...mockFranchise, admins: []}
-      DB.getFranchise.mockResolvedValueOnce(otherMockFranchise);
+      const otherMockFranchise = { ...mockFranchise, admins: [] };
+      deps.db.getFranchise.mockResolvedValueOnce(otherMockFranchise);
 
       const res = await request(app)
         .post(`/api/franchise/${otherMockFranchise.id}/store`)
@@ -255,20 +251,19 @@ describe("Franchise Router Integration Tests", () => {
   // DELETE /api/franchise/:franchiseId/store/:storeId - Delete store
   // ====================================================================
   describe("DELETE /api/franchise/:franchiseId/store/:storeId", () => {
-
     const mockFranchise = {
       id: 11,
       name: "pizzaPocket",
       admins: [mockUserFranchisee],
     };
 
-    const mockStore = {id: 101};
+    const mockStore = { id: 101 };
 
     test("admin deletes store successfully", async () => {
       mockLoginAsAdmin();
 
-      DB.getFranchise.mockResolvedValueOnce(mockFranchise);
-      DB.deleteStore.mockResolvedValueOnce();
+      deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
+      deps.db.deleteStore.mockResolvedValueOnce();
 
       const res = await request(app)
         .delete(`/api/franchise/${mockFranchise.id}/store/${mockStore.id}`)
@@ -281,8 +276,8 @@ describe("Franchise Router Integration Tests", () => {
     test("franchisee deletes store from their franchise", async () => {
       mockLoginAsFranchisee();
 
-      DB.getFranchise.mockResolvedValueOnce(mockFranchise);
-      DB.deleteStore.mockResolvedValueOnce();
+      deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
+      deps.db.deleteStore.mockResolvedValueOnce();
 
       const res = await request(app)
         .delete(`/api/franchise/${mockFranchise.id}/store/${mockStore.id}`)
@@ -295,7 +290,7 @@ describe("Franchise Router Integration Tests", () => {
     test("returns 403 when not authorized", async () => {
       mockLoginAsDiner();
 
-      DB.getFranchise.mockResolvedValueOnce(mockFranchise);
+      deps.db.getFranchise.mockResolvedValueOnce(mockFranchise);
 
       const res = await request(app)
         .delete(`/api/franchise/${mockFranchise.id}/store/${mockStore.id}`)
@@ -305,7 +300,9 @@ describe("Franchise Router Integration Tests", () => {
     });
 
     test("returns 401 without auth token", async () => {
-      const res = await request(app).delete(`/api/franchise/${mockFranchise.id}/store/${mockStore.id}`);
+      const res = await request(app).delete(
+        `/api/franchise/${mockFranchise.id}}/store/${mockStore.id}`,
+      );
 
       expect(res.status).toBe(401);
     });

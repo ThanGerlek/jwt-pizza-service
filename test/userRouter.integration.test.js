@@ -1,17 +1,16 @@
-const { stopMetrics } = require("../src/metrics");
-const { setupMocks } = require("./test_utils/mocked_imports");
+const { makeTestApp } = require("./test_utils/mocked_imports");
 const buildMocks = require("./test_utils/test_utils");
-const { request, app, DB, jwt } = setupMocks();
-
-const { mockLoginAsAdmin, mockLoginAsDiner } = buildMocks(DB, jwt);
 
 describe("user routes", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+  let request;
+  let app;
+  let deps;
+  let mockLoginAsAdmin;
+  let mockLoginAsDiner;
 
-  afterAll(() => {
-    stopMetrics();
+  beforeEach(() => {
+    ({ request, app, deps } = makeTestApp());
+    ({ mockLoginAsAdmin, mockLoginAsDiner } = buildMocks(deps.db, deps.jwt));
   });
 
   test("GET /api/user/me returns authenticated user", async () => {
@@ -42,7 +41,10 @@ describe("user routes", () => {
   test("PUT /api/user/:userId allows admin to update", async () => {
     const userData = mockLoginAsAdmin();
     const updatedName = userData.name + "_UPDATED";
-    DB.updateUser.mockResolvedValueOnce({ ...userData, name: updatedName });
+    deps.db.updateUser.mockResolvedValueOnce({
+      ...userData,
+      name: updatedName,
+    });
 
     const res = await request(app)
       .put(`/api/user/${userData.id}`)
