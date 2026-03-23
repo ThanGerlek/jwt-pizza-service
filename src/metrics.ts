@@ -531,3 +531,52 @@ export class GrafanaMetricsManager implements MetricsManager {
       });
   }
 }
+
+const singletonMetricsManager = new GrafanaMetricsManager();
+
+export const startMetrics = (): void => singletonMetricsManager.startMetrics();
+export const stopMetrics = (): void => singletonMetricsManager.stopMetrics();
+export const requestTracker = (
+  req: RequestForMetrics,
+  res: unknown,
+  next: () => void,
+): void => singletonMetricsManager.requestTracker(req, res, next);
+export const requestLatencyTracker = (
+  req: { method: string; path: string },
+  res: ResponseForMetrics,
+  next: () => void,
+): void => singletonMetricsManager.requestLatencyTracker(req, res, next);
+export const activeUserTracker = (
+  req: { user?: { id: number } },
+  res: unknown,
+  next: () => void,
+): void => singletonMetricsManager.activeUserTracker(req, res, next);
+export const trackAuthAttempt = (success: boolean): void =>
+  singletonMetricsManager.trackAuthAttempt(success);
+export const trackPizzaCreationSuccess = (details: {
+  pizzasCount: number;
+  revenue: number;
+  franchiseId?: number | string;
+  storeId?: number | string;
+  dinerId?: number | string;
+}): void => singletonMetricsManager.trackPizzaCreationSuccess(details);
+export const trackPizzaCreationFailure = (details: {
+  franchiseId?: number | string;
+  storeId?: number | string;
+  dinerId?: number | string;
+  reason?: string;
+}): void => singletonMetricsManager.trackPizzaCreationFailure(details);
+export const trackPizzaCreationLatency = (
+  outcome: "success" | "failure",
+  durationMs: number,
+  details: {
+    franchiseId?: number | string;
+    storeId?: number | string;
+    dinerId?: number | string;
+  },
+): void =>
+  singletonMetricsManager.trackPizzaCreationLatency(
+    outcome,
+    durationMs,
+    details,
+  );
