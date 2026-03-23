@@ -23,13 +23,15 @@ import config from './config.js';
 
 // TODO Add types
 
+export interface Logger {
+  log(level: any, type: any, logData: any): void;
+};
 
-export class Logger {
-
-  httpLogger = (req: any, res: any, next: any) => {
+export class GrafanaLogger implements Logger {
+  private httpLogger = (req: any, res: any, next: any) => {
     let send = res.send;
     res.send = (resBody: any) => {
-      console.log("Logging.");
+      // console.log("Logging.");
       const logData = {
         authorized: !!req.headers.authorization,
         path: req.originalUrl,
@@ -54,22 +56,22 @@ export class Logger {
     this.sendLogToGrafana(logEvent);
   }
 
-  statusToLogLevel(statusCode: any) {
+  private statusToLogLevel(statusCode: any) {
     if (statusCode >= 500) return 'error';
     if (statusCode >= 400) return 'warn';
     return 'info';
   }
 
-  nowString() {
+  private nowString() {
     return (Math.floor(Date.now()) * 1000000).toString();
   }
 
-  sanitize(logData: any) {
+  private sanitize(logData: any) {
     logData = JSON.stringify(logData);
     return logData.replace(/\\"password\\":\s*\\"[^"]*\\"/g, '\\"password\\": \\"*****\\"');
   }
 
-  sendLogToGrafana(event: any) {
+  private sendLogToGrafana(event: any) {
     const body = JSON.stringify(event);
     fetch(`${config.logs.endpointUrl}`, {
       method: 'post',
