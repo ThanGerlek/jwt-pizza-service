@@ -1,4 +1,4 @@
-jest.mock("../src/metrics", () => {
+jest.mock("../src/metrics.ts", () => {
   const passThroughMiddleware = (req, res, next) => next();
   return {
     activeUserTracker: passThroughMiddleware,
@@ -78,6 +78,11 @@ describe("order routes metrics", () => {
       }),
     });
 
+    // Mock logger fetch call (to Grafana)
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+    });
+
     // Act
     const res = await request(app)
       .post("/api/order")
@@ -130,6 +135,11 @@ describe("order routes metrics", () => {
     global.fetch.mockResolvedValueOnce({
       ok: false,
       json: async () => ({ reportUrl: "http://factory/report/error" }),
+    });
+
+    // Mock logger fetch call (to Grafana)
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
     });
 
     const res = await request(app)
