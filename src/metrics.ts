@@ -57,6 +57,8 @@ interface CumulativeMetricState {
 
 const DEFAULT_FLUSH_INTERVAL_MS = (metrics as any)?.flushIntervalMs ?? 10_000;
 const DEFAULT_MAX_BATCH_SIZE = (metrics as any)?.maxBatchSize ?? 1000;
+const METRICS_ENVIRONMENT =
+  (metrics as any)?.environment ?? process.env.NODE_ENV ?? "dev";
 
 // Scale factor for pizza_revenue_total so we send an integer (backend counter semantics). Divide by REVENUE_SCALE in Grafana for revenue in original units.
 const REVENUE_SCALE = 1e6;
@@ -72,6 +74,10 @@ const ACTIVE_USER_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 type RequestForMetrics = {
   method: string;
   path: string;
+  /** Mount path accumulated by Express (e.g. `/api/order`). */
+  baseUrl?: string;
+  /** Set after a route matches; use `path` for the route pattern (e.g. `/:orderId`). */
+  route?: { path?: string | RegExp };
   user?: { id: number };
 };
 type ResponseForMetrics = {
@@ -79,12 +85,63 @@ type ResponseForMetrics = {
   statusCode?: number;
 };
 
+/** Low-cardinality route template for Prometheus (method + `route` label, not raw path). */
+function normalizeRoutePattern(routePath: string | RegExp): string {
+  if (typeof routePath === "string") {
+    return routePath;
+  }
+  return "*";
+}
+
+function joinBaseAndRoutePattern(baseUrl: string, pattern: string): string {
+  const b = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+  const p = pattern.startsWith("/") ? pattern : `/${pattern}`;
+  if (!b) {
+    return p || "/";
+  }
+  return `${b}${p}`;
+}
+
+function getHttpRouteTemplate(
+  req: {
+    method?: string;
+    path?: string;
+    baseUrl?: string;
+    route?: { path?: string | RegExp };
+  },
+  statusCode: number | undefined,
+): string {
+  const method = req.method ?? "GET";
+  if (method === "OPTIONS") {
+    return "options";
+  }
+  const routePath = req.route?.path;
+  if (routePath !== undefined && routePath !== null) {
+    const pattern = normalizeRoutePattern(routePath);
+    const base = req.baseUrl ?? "";
+    return joinBaseAndRoutePattern(base, pattern);
+  }
+  const p = req.path ?? "";
+  if (p === "/" || p === "") {
+    return "root";
+  }
+  const code = statusCode ?? 0;
+  if (code === 404) {
+    return "not_found";
+  }
+  return "unmatched";
+}
+
 export interface MetricsManager {
   startMetrics(): void;
   stopMetrics(): void;
-  requestTracker(req: RequestForMetrics, res: unknown, next: () => void): void;
+  requestTracker(
+    req: RequestForMetrics,
+    res: ResponseForMetrics,
+    next: () => void,
+  ): void;
   requestLatencyTracker(
-    req: { method: string; path: string },
+    req: RequestForMetrics,
     res: ResponseForMetrics,
     next: () => void,
   ): void;
@@ -194,27 +251,29 @@ export class GrafanaMetricsManager implements MetricsManager {
 
   public requestTracker(
     req: RequestForMetrics,
-    res: unknown,
+    res: ResponseForMetrics,
     next: () => void,
   ): void {
-    void res;
-    const endpoint = `[${req.method}] ${req.path}`;
-    this.requests[endpoint] = (this.requests[endpoint] ?? 0) + 1;
+    res.on("finish", () => {
+      const route = getHttpRouteTemplate(req, res.statusCode);
+      const endpoint = `[${req.method}] ${route}`;
+      this.requests[endpoint] = (this.requests[endpoint] ?? 0) + 1;
 
-    this.recordCount("http_requests_total", {
-      method: req.method,
-      path: req.path,
+      this.recordCount("http_requests_total", {
+        method: req.method,
+        route,
+      });
     });
 
     next();
   }
 
   public requestLatencyTracker(
-    req: { method: string; path: string },
+    req: RequestForMetrics,
     res: ResponseForMetrics,
     next: () => void,
   ): void {
-    const { method, path } = req;
+    const { method } = req;
     const startTime =
       typeof process.hrtime === "function" &&
       typeof process.hrtime.bigint === "function"
@@ -233,9 +292,10 @@ export class GrafanaMetricsManager implements MetricsManager {
         durationMs = Date.now() - fallbackStart;
       }
 
+      const route = getHttpRouteTemplate(req, res.statusCode);
       const attributes: Record<string, string> = {
         method,
-        path,
+        route,
         status: String(res.statusCode ?? 0),
       };
 
@@ -426,6 +486,10 @@ export class GrafanaMetricsManager implements MetricsManager {
     unit: MetricUnit,
     attributes?: Record<string, string>,
   ): void {
+    const mergedAttributes = {
+      deployment_environment: String(METRICS_ENVIRONMENT),
+      ...(attributes ?? {}),
+    };
     const metricEntry: MetricEntry = {
       name: metricName,
       unit,
@@ -441,8 +505,8 @@ export class GrafanaMetricsManager implements MetricsManager {
               timeUnixNano: Date.now() * 1000000,
             };
 
-            if (attributes && Object.keys(attributes).length > 0) {
-              point.attributes = Object.entries(attributes).map(
+            if (Object.keys(mergedAttributes).length > 0) {
+              point.attributes = Object.entries(mergedAttributes).map(
                 ([key, value]) => ({
                   key,
                   value: { stringValue: value },
@@ -538,11 +602,11 @@ export const startMetrics = (): void => singletonMetricsManager.startMetrics();
 export const stopMetrics = (): void => singletonMetricsManager.stopMetrics();
 export const requestTracker = (
   req: RequestForMetrics,
-  res: unknown,
+  res: ResponseForMetrics,
   next: () => void,
 ): void => singletonMetricsManager.requestTracker(req, res, next);
 export const requestLatencyTracker = (
-  req: { method: string; path: string },
+  req: RequestForMetrics,
   res: ResponseForMetrics,
   next: () => void,
 ): void => singletonMetricsManager.requestLatencyTracker(req, res, next);

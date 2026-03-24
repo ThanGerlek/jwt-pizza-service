@@ -9,6 +9,7 @@ jest.mock("../src/config.js", () => ({
       endpointUrl: "http://metrics-endpoint",
       apiKey: "test-api-key",
       accountId: "test-account-id",
+      environment: "test",
       flushIntervalMs: 1_000,
       maxBatchSize: 1_000,
     },
@@ -19,12 +20,25 @@ describe("metrics module", () => {
   let startMetrics: () => void;
   let stopMetrics: () => void;
   let requestTracker: (
-    req: { method: string; path: string },
-    res: unknown,
+    req: {
+      method: string;
+      path: string;
+      baseUrl?: string;
+      route?: { path?: string | RegExp };
+    },
+    res: {
+      on: (event: string, callback: () => void) => void;
+      statusCode?: number;
+    },
     next: () => void,
   ) => void;
   let requestLatencyTracker: (
-    req: { method: string; path: string },
+    req: {
+      method: string;
+      path: string;
+      baseUrl?: string;
+      route?: { path?: string | RegExp };
+    },
     res: {
       on: (event: string, callback: () => void) => void;
       statusCode?: number;
@@ -96,9 +110,30 @@ describe("metrics module", () => {
 
   test("push-style HTTP request metrics are batched and sent on stopMetrics", async () => {
     const next = jest.fn();
+    const listeners: Record<string, Array<() => void>> = {};
+    const res = {
+      statusCode: 200,
+      on: (event: string, callback: () => void) => {
+        if (!listeners[event]) {
+          listeners[event] = [];
+        }
+        listeners[event].push(callback);
+      },
+    };
 
-    requestTracker({ method: "GET", path: "/api/test" }, {}, next);
+    requestTracker(
+      {
+        method: "GET",
+        path: "/api/order/99",
+        baseUrl: "/api/order",
+        route: { path: "/:orderId" },
+      },
+      res,
+      next,
+    );
     expect(next).toHaveBeenCalled();
+
+    (listeners.finish || []).forEach((cb) => cb());
 
     // Stopping metrics should flush any queued metrics once.
     stopMetrics();
@@ -113,6 +148,17 @@ describe("metrics module", () => {
     );
 
     expect(metricNames).toContain("http_requests_total");
+
+    const reqMetric = body.resourceMetrics[0].scopeMetrics[0].metrics.find(
+      (m: { name: string }) => m.name === "http_requests_total",
+    );
+    const attrs = reqMetric.sum?.dataPoints?.[0]?.attributes ?? [];
+    const routeAttr = attrs.find((a: { key: string }) => a.key === "route");
+    const envAttr = attrs.find(
+      (a: { key: string }) => a.key === "deployment_environment",
+    );
+    expect(routeAttr?.value?.stringValue).toBe("/api/order/:orderId");
+    expect(envAttr?.value?.stringValue).toBe("test");
   });
 
   test("requestLatencyTracker records http_request_duration_ms with attributes on response finish", () => {
@@ -128,7 +174,16 @@ describe("metrics module", () => {
       },
     };
 
-    requestLatencyTracker({ method: "POST", path: "/api/order" }, res, next);
+    requestLatencyTracker(
+      {
+        method: "POST",
+        path: "/api/order",
+        baseUrl: "/api",
+        route: { path: "/order" },
+      },
+      res,
+      next,
+    );
     expect(next).toHaveBeenCalled();
 
     (listeners.finish || []).forEach((cb) => cb());
@@ -148,11 +203,11 @@ describe("metrics module", () => {
 
     const attrs = latencyMetric.sum?.dataPoints?.[0]?.attributes ?? [];
     const methodAttr = attrs.find((a: { key: string }) => a.key === "method");
-    const pathAttr = attrs.find((a: { key: string }) => a.key === "path");
+    const routeAttr = attrs.find((a: { key: string }) => a.key === "route");
     const statusAttr = attrs.find((a: { key: string }) => a.key === "status");
 
     expect(methodAttr?.value?.stringValue).toBe("POST");
-    expect(pathAttr?.value?.stringValue).toBe("/api/order");
+    expect(routeAttr?.value?.stringValue).toBe("/api/order");
     expect(statusAttr?.value?.stringValue).toBe("201");
   });
 
