@@ -57,8 +57,7 @@ interface CumulativeMetricState {
 
 const DEFAULT_FLUSH_INTERVAL_MS = (metrics as any)?.flushIntervalMs ?? 10_000;
 const DEFAULT_MAX_BATCH_SIZE = (metrics as any)?.maxBatchSize ?? 1000;
-const METRICS_ENVIRONMENT =
-  (metrics as any)?.environment ?? process.env.NODE_ENV ?? "dev";
+const METRICS_ENVIRONMENT = (metrics as any)?.environment ?? "dev";
 
 // Scale factor for pizza_revenue_total so we send an integer (backend counter semantics). Divide by REVENUE_SCALE in Grafana for revenue in original units.
 const REVENUE_SCALE = 1e6;
