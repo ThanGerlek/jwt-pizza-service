@@ -1,6 +1,6 @@
 const express = require("express");
 const { asyncHandler, StatusCodeError } = require("../endpointHelper.js");
-const { sanitizeFactoryReportUrl } = require("../util/factoryUrl.ts");
+// const { sanitizeFactoryReportUrl } = require("../util/factoryUrl.ts");
 const docs = [
   {
     method: "GET",
@@ -198,11 +198,11 @@ function createOrderRouter(deps) {
         ok: response.ok,
         factoryResponseBody: jsonResult,
       });
-      const safeReportUrl = sanitizeFactoryReportUrl(
-        jsonResult.reportUrl,
-        config.factory.url,
-        config.factory.reportHostAllowlist,
-      );
+      // const safeReportUrl = sanitizeFactoryReportUrl(
+      //   jsonResult.reportUrl,
+      //   config.factory.url,
+      //   config.factory.reportHostAllowlist,
+      // );
       if (response.ok) {
         const durationMs = Date.now() - startTime;
         metricsManager.trackPizzaCreationSuccess({
