@@ -19,7 +19,7 @@ describe("Service Integration Tests - Edge Cases", () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("version");
       expect(res.body).toHaveProperty("endpoints");
-      expect(res.body).toHaveProperty("config");
+      expect(res.body).not.toHaveProperty("config");
       expect(Array.isArray(res.body.endpoints)).toBe(true);
     });
 
@@ -36,12 +36,11 @@ describe("Service Integration Tests - Edge Cases", () => {
       expect(paths.some((p) => p.startsWith("/api/order"))).toBe(true);
     });
 
-    test("includes config and version info", async () => {
+    test("includes version string only (no infra config)", async () => {
       const res = await request(app).get("/api/docs");
 
       expect(res.status).toBe(200);
-      expect(res.body.config).toHaveProperty("factory");
-      expect(res.body.config).toHaveProperty("db");
+      expect(res.body).not.toHaveProperty("config");
       expect(typeof res.body.version).toBe("string");
       expect(res.body.version.length).toBeGreaterThan(0);
     });

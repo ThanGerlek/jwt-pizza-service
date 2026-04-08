@@ -126,10 +126,6 @@ function createApp(deps) {
         ...orderRouter.docs,
         ...franchiseRouter.docs,
       ],
-      config: {
-        factory: deps.config.factory.url,
-        db: deps.config.db.connection.host,
-      },
     });
   });
 
