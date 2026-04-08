@@ -122,7 +122,11 @@ function createFranchiseRouter(deps) {
   // deleteFranchise
   franchiseRouter.delete(
     "/:franchiseId",
+    authenticateToken,
     asyncHandler(async (req, res) => {
+      if (!req.user.isRole(role.Admin)) {
+        throw new StatusCodeError("unable to delete franchise", 403);
+      }
       const franchiseId = Number(req.params.franchiseId);
       await db.deleteFranchise(franchiseId);
       res.json({ message: "franchise deleted" });

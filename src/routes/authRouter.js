@@ -52,7 +52,9 @@ function createAuthRouter(deps) {
       try {
         if (await db.isLoggedIn(token)) {
           // Check the database to make sure the token is valid.
-          req.user = jwt.verify(token, config.jwtSecret);
+          req.user = jwt.verify(token, config.jwtSecret, {
+            algorithms: ["HS256"],
+          });
           req.user.isRole = (targetRole) =>
             !!req.user.roles.find((r) => r.role === targetRole);
         }
@@ -125,7 +127,7 @@ function createAuthRouter(deps) {
   );
 
   async function setAuth(user) {
-    const token = jwt.sign(user, config.jwtSecret);
+    const token = jwt.sign(user, config.jwtSecret, { algorithm: "HS256" });
     await db.loginUser(user.id, token);
     return token;
   }
@@ -142,10 +144,15 @@ function createAuthRouter(deps) {
 
 function readAuthToken(req) {
   const authHeader = req.headers.authorization;
-  if (authHeader) {
-    return authHeader.split(" ")[1];
+  if (!authHeader || typeof authHeader !== "string") {
+    return null;
   }
-  return null;
+  const parts = authHeader.split(/\s+/);
+  if (parts.length < 2 || parts[0] !== "Bearer") {
+    return null;
+  }
+  const token = parts[1];
+  return (typeof token === "string" && token.length > 0) ? token : null;
 }
 
 module.exports = { createAuthRouter };

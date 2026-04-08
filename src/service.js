@@ -1,4 +1,6 @@
 const express = require("express");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const { createAuthRouter } = require("./routes/authRouter.js");
 const { createOrderRouter } = require("./routes/orderRouter.js");
 const { createFranchiseRouter } = require("./routes/franchiseRouter.js");
@@ -26,8 +28,52 @@ function logRequestError(logger, err, req) {
     error: errorPayload,
   });
 }
+
+function createCorsMiddleware() {
+  return (req, res, next) => {
+    const raw = process.env.CORS_ALLOWED_ORIGINS || "";
+    const allowedOrigins = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const origin = req.headers.origin;
+
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS",
+    );
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization",
+    );
+
+    if (allowedOrigins.length > 0) {
+      if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader("Access-Control-Allow-Credentials", "true");
+      }
+    } else {
+      res.setHeader("Access-Control-Allow-Origin", origin || "*");
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
+
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+    next();
+  };
+}
+
 function createApp(deps) {
   const app = express();
+  if (process.env.TRUST_PROXY === "1") {
+    app.set("trust proxy", 1);
+  }
+
+  app.use(helmet());
+  app.use(express.json({ limit: "256kb" }));
+
   const auth = createAuthRouter(deps);
   const userRouter = createUserRouter({
     db: deps.db,
@@ -50,26 +96,23 @@ function createApp(deps) {
     authenticateToken: auth.authenticateToken,
   });
 
-  app.use(express.json());
   app.use(auth.setAuthUser);
   app.use(deps.metricsManager.activeUserTracker);
   app.use(deps.metricsManager.requestTracker);
   app.use(deps.metricsManager.requestLatencyTracker);
   app.use(deps.logger.httpLogger);
-  app.use((req, res, next) => {
-    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization",
-    );
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    next();
+  app.use(createCorsMiddleware());
+
+  const authLimiter = rateLimit({
+    windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+    max: Number(process.env.AUTH_RATE_LIMIT_MAX || 100),
+    standardHeaders: true,
+    legacyHeaders: false,
   });
 
   const apiRouter = express.Router();
   app.use("/api", apiRouter);
-  apiRouter.use("/auth", auth.authRouter);
+  apiRouter.use("/auth", authLimiter, auth.authRouter);
   apiRouter.use("/user", userRouter);
   apiRouter.use("/order", orderRouter);
   apiRouter.use("/franchise", franchiseRouter);
@@ -103,12 +146,22 @@ function createApp(deps) {
     });
   });
 
-  // Default error handler for all exceptions and errors.
+  const exposeErrorDetails =
+    process.env.EXPOSE_ERROR_DETAILS === "true" ||
+    (process.env.NODE_ENV !== "production" &&
+      process.env.EXPOSE_ERROR_DETAILS !== "false");
+
   app.use((err, req, res, next) => {
     logRequestError(deps.logger, err, req);
-    res
-      .status(err.statusCode ?? 500)
-      .json({ message: err.message, stack: err.stack });
+    const statusCode = err.statusCode ?? 500;
+    const body = { message: err.message };
+    if (exposeErrorDetails && err.stack) {
+      body.stack = err.stack;
+    }
+    if (!exposeErrorDetails && statusCode >= 500) {
+      body.message = "internal server error";
+    }
+    res.status(statusCode).json(body);
     next();
   });
 

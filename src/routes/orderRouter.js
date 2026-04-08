@@ -1,5 +1,6 @@
 const express = require("express");
 const { asyncHandler, StatusCodeError } = require("../endpointHelper.js");
+const { sanitizeFactoryReportUrl } = require("../util/factoryUrl.ts");
 const docs = [
   {
     method: "GET",
@@ -197,6 +198,11 @@ function createOrderRouter(deps) {
         ok: response.ok,
         factoryResponseBody: jsonResult,
       });
+      const safeReportUrl = sanitizeFactoryReportUrl(
+        jsonResult.reportUrl,
+        config.factory.url,
+        config.factory.reportHostAllowlist,
+      );
       if (response.ok) {
         const durationMs = Date.now() - startTime;
         metricsManager.trackPizzaCreationSuccess({
@@ -213,7 +219,9 @@ function createOrderRouter(deps) {
         });
         res.send({
           order,
+          // TODO later (but not until the higher-ups confirm this): replace with safeReportUrl
           followLinkToEndChaos: jsonResult.reportUrl,
+          // followLinkToEndChaos: safeReportUrl,
           jwt: jsonResult.jwt,
         });
       } else {
@@ -231,7 +239,9 @@ function createOrderRouter(deps) {
         });
         res.status(500).send({
           message: "Failed to fulfill order at factory",
+          // TODO later (but not until the higher-ups confirm this): replace with safeReportUrl
           followLinkToEndChaos: jsonResult.reportUrl,
+          // followLinkToEndChaos: safeReportUrl,
         });
       }
     }),

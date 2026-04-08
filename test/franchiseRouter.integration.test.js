@@ -154,15 +154,34 @@ describe("Franchise Router Integration Tests", () => {
   // DELETE /api/franchise/:franchiseId - Delete franchise
   // ====================================================================
   describe("DELETE /api/franchise/:franchiseId", () => {
-    // TODO Require auth? It currently doesn't.
-
-    test("deletes franchise successfully", async () => {
+    test("admin deletes franchise successfully", async () => {
+      mockLoginAsAdmin();
       deps.db.deleteFranchise.mockResolvedValueOnce();
 
-      const res = await request(app).delete("/api/franchise/5");
+      const res = await request(app)
+        .delete("/api/franchise/5")
+        .set("Authorization", "Bearer tok.sig.sgn");
 
       expect(res.status).toBe(200);
       expect(res.body.message).toBe("franchise deleted");
+    });
+
+    test("returns 403 for non-admin", async () => {
+      mockLoginAsDiner();
+
+      const res = await request(app)
+        .delete("/api/franchise/5")
+        .set("Authorization", "Bearer tok.sig.sgn");
+
+      expect(res.status).toBe(403);
+      expect(deps.db.deleteFranchise).not.toHaveBeenCalled();
+    });
+
+    test("returns 401 without auth token", async () => {
+      const res = await request(app).delete("/api/franchise/5");
+
+      expect(res.status).toBe(401);
+      expect(deps.db.deleteFranchise).not.toHaveBeenCalled();
     });
   });
 

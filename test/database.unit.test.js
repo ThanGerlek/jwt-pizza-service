@@ -41,6 +41,10 @@ jest.mock("../src/logger.ts", () => ({
   GrafanaLogger: jest.fn(() => mockDbLogger),
 }));
 
+// Default handlers so DB constructor's initializeDatabase() does not throw before beforeEach runs
+mockConnection.execute.mockResolvedValue([[]]);
+mockConnection.query.mockResolvedValue([[]]);
+
 // Import real DB class after mocking dependencies
 const database = require("../src/database/database.js");
 const { StatusCodeError } = require("../src/endpointHelper.js");
@@ -228,6 +232,24 @@ describe("Database Unit Tests", () => {
         expect(mockConnection.end).toHaveBeenCalled();
       });
 
+      test("maps duplicate email to 409", async () => {
+        const newUser = {
+          name: "Dup",
+          email: "dup@test.com",
+          password: "password",
+          roles: [{ role: Role.Diner }],
+        };
+        const dup = Object.assign(new Error("Duplicate"), {
+          code: "ER_DUP_ENTRY",
+        });
+        mockConnection.execute.mockRejectedValueOnce(dup);
+
+        await expect(originalDB.addUser(newUser)).rejects.toMatchObject({
+          statusCode: 409,
+          message: "email already registered",
+        });
+      });
+
       // test("closes connection on error", async () => {
       //   const newUser = {
       //     name: "Error User",
@@ -365,8 +387,8 @@ describe("Database Unit Tests", () => {
 
         mockConnection.execute
           .mockResolvedValueOnce([{}]) // UPDATE
-          .mockResolvedValueOnce([[mockUser]]) // getUser
-          .mockResolvedValueOnce([mockRoles]);
+          .mockResolvedValueOnce([[mockUser]]) // getUserById SELECT user
+          .mockResolvedValueOnce([mockRoles]); // roles
 
         await originalDB.updateUser(
           1,
@@ -376,7 +398,34 @@ describe("Database Unit Tests", () => {
         );
 
         expect(mockBcrypt.hash).toHaveBeenCalledWith("newPassword", 10);
+        expect(mockConnection.execute).toHaveBeenNthCalledWith(
+          1,
+          "UPDATE user SET password=?, email=?, name=? WHERE id=?",
+          ["hashedPassword", "new@test.com", "New Name", 1],
+        );
         expect(mockConnection.end).toHaveBeenCalled();
+      });
+
+      test("parameterized update resists SQL metacharacters in email", async () => {
+        const maliciousEmail = `evil@test.com' OR '1'='1`;
+        const mockUser = {
+          id: 1,
+          name: "N",
+          email: maliciousEmail,
+          password: "x",
+        };
+        const mockRoles = [];
+        mockConnection.execute
+          .mockResolvedValueOnce([{}])
+          .mockResolvedValueOnce([[mockUser]])
+          .mockResolvedValueOnce([mockRoles]);
+
+        await originalDB.updateUser(1, undefined, maliciousEmail, undefined);
+
+        expect(mockConnection.execute).toHaveBeenCalledWith(
+          "UPDATE user SET email=? WHERE id=?",
+          [maliciousEmail, 1],
+        );
       });
 
       // test("closes connection on error", async () => {
@@ -581,21 +630,37 @@ describe("Database Unit Tests", () => {
 
         mockConnection.execute
           .mockResolvedValueOnce([{ insertId: 100 }]) // INSERT order
-          .mockResolvedValueOnce([[{ id: 1 }]]) // getID for menu item 1
+          .mockResolvedValueOnce([
+            [{ id: 1, description: "Veggie delight", price: 0.0038 }],
+          ]) // menu row 1
           .mockResolvedValueOnce([{}]) // INSERT orderItem 1
-          .mockResolvedValueOnce([[{ id: 2 }]]) // getID for menu item 2
+          .mockResolvedValueOnce([
+            [{ id: 2, description: "Pepperoni pie", price: 0.0042 }],
+          ]) // menu row 2
           .mockResolvedValueOnce([{}]); // INSERT orderItem 2
 
         const result = await originalDB.addDinerOrder(user, order);
 
-        expect(result).toEqual({ ...order, id: 100 });
+        expect(result).toEqual({
+          franchiseId: 1,
+          storeId: 2,
+          items: [
+            { menuId: 1, description: "Veggie delight", price: 0.0038 },
+            { menuId: 2, description: "Pepperoni pie", price: 0.0042 },
+          ],
+          id: 100,
+        });
         expect(mockConnection.execute).toHaveBeenCalledWith(
           "INSERT INTO dinerOrder (dinerId, franchiseId, storeId, date) VALUES (?, ?, ?, now())",
           [5, 1, 2],
         );
         expect(mockConnection.execute).toHaveBeenCalledWith(
+          "SELECT id, description, price FROM menu WHERE id=?",
+          [1],
+        );
+        expect(mockConnection.execute).toHaveBeenCalledWith(
           "INSERT INTO orderItem (orderId, menuId, description, price) VALUES (?, ?, ?, ?)",
-          [100, 1, "Veggie", 0.0038],
+          [100, 1, "Veggie delight", 0.0038],
         );
         expect(mockConnection.end).toHaveBeenCalled();
       });

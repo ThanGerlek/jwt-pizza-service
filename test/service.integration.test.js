@@ -216,7 +216,7 @@ describe("Service Integration Tests - Edge Cases", () => {
         "http://localhost:3000",
       );
       expect(res.headers["access-control-allow-methods"]).toBe(
-        "GET, POST, PUT, DELETE",
+        "GET, POST, PUT, DELETE, OPTIONS",
       );
       expect(res.headers["access-control-allow-headers"]).toBe(
         "Content-Type, Authorization",
@@ -235,11 +235,12 @@ describe("Service Integration Tests - Edge Cases", () => {
         .options("/api/auth")
         .set("Origin", "http://localhost:3000");
 
+      expect(res.status).toBe(204);
       expect(res.headers["access-control-allow-origin"]).toBe(
         "http://localhost:3000",
       );
       expect(res.headers["access-control-allow-methods"]).toBe(
-        "GET, POST, PUT, DELETE",
+        "GET, POST, PUT, DELETE, OPTIONS",
       );
     });
   });

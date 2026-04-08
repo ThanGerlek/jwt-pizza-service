@@ -8,8 +8,8 @@ import { GrafanaLogger } from "./logger.ts";
 import { GrafanaMetricsManager } from "./metrics.ts";
 
 type AuthJwt = {
-  sign: (payload: any, secret: string) => string;
-  verify: (token: string, secret: string) => any;
+  sign: (payload: any, secret: string, options?: object) => string;
+  verify: (token: string, secret: string, options?: object) => any;
 };
 type AppFetch = typeof fetch;
 
@@ -29,6 +29,7 @@ export interface DatabasePort {
     email?: string,
     password?: string,
   ): Promise<any>;
+  getUserById(userId: number): Promise<any>;
   getFranchise(franchise: { id: number }): Promise<any>;
   getFranchises(
     user?: any,

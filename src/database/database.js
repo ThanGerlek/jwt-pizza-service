@@ -40,11 +40,19 @@ class DB {
     try {
       const hashedPassword = await bcrypt.hash(user.password, 10);
 
-      const userResult = await this.query(
-        connection,
-        `INSERT INTO user (name, email, password) VALUES (?, ?, ?)`,
-        [user.name, user.email, hashedPassword],
-      );
+      let userResult;
+      try {
+        userResult = await this.query(
+          connection,
+          `INSERT INTO user (name, email, password) VALUES (?, ?, ?)`,
+          [user.name, user.email, hashedPassword],
+        );
+      } catch (err) {
+        if (err?.code === "ER_DUP_ENTRY") {
+          throw new StatusCodeError("email already registered", 409);
+        }
+        throw err;
+      }
       const userId = userResult.insertId;
       for (const role of user.roles) {
         switch (role.role) {
@@ -83,7 +91,7 @@ class DB {
     try {
       const userResult = await this.query(
         connection,
-        `SELECT * FROM user WHERE email=?`,
+        `SELECT * FROM user WHERE email=? LIMIT 1`,
         [email],
       );
       const user = userResult[0];
@@ -109,25 +117,59 @@ class DB {
     }
   }
 
+  async getUserById(userId) {
+    const connection = await this.getConnection();
+    try {
+      const userResult = await this.query(
+        connection,
+        `SELECT * FROM user WHERE id=?`,
+        [userId],
+      );
+      const user = userResult[0];
+      if (!user) {
+        throw new StatusCodeError("unknown user", 404);
+      }
+      const roleResult = await this.query(
+        connection,
+        `SELECT * FROM userRole WHERE userId=?`,
+        [user.id],
+      );
+      const roles = roleResult.map((r) => {
+        return { objectId: r.objectId || undefined, role: r.role };
+      });
+      return { ...user, roles, password: undefined };
+    } finally {
+      connection.end();
+    }
+  }
+
   async updateUser(userId, name, email, password) {
     const connection = await this.getConnection();
     try {
-      const params = [];
+      const setClauses = [];
+      const values = [];
       if (password) {
         const hashedPassword = await bcrypt.hash(password, 10);
-        params.push(`password='${hashedPassword}'`);
+        setClauses.push("password=?");
+        values.push(hashedPassword);
       }
       if (email) {
-        params.push(`email='${email}'`);
+        setClauses.push("email=?");
+        values.push(email);
       }
       if (name) {
-        params.push(`name='${name}'`);
+        setClauses.push("name=?");
+        values.push(name);
       }
-      if (params.length > 0) {
-        const query = `UPDATE user SET ${params.join(", ")} WHERE id=${userId}`;
-        await this.query(connection, query);
+      if (setClauses.length > 0) {
+        values.push(userId);
+        await this.query(
+          connection,
+          `UPDATE user SET ${setClauses.join(", ")} WHERE id=?`,
+          values,
+        );
       }
-      return this.getUser(email, password);
+      return this.getUserById(userId);
     } finally {
       connection.end();
     }
@@ -204,15 +246,33 @@ class DB {
         [user.id, order.franchiseId, order.storeId],
       );
       const orderId = orderResult.insertId;
+      const resolvedItems = [];
       for (const item of order.items) {
-        const menuId = await this.getID(connection, "id", item.menuId, "menu");
+        const menuRows = await this.query(
+          connection,
+          `SELECT id, description, price FROM menu WHERE id=?`,
+          [item.menuId],
+        );
+        if (menuRows.length === 0) {
+          throw new StatusCodeError("unknown menu item", 400);
+        }
+        const menuRow = menuRows[0];
         await this.query(
           connection,
           `INSERT INTO orderItem (orderId, menuId, description, price) VALUES (?, ?, ?, ?)`,
-          [orderId, menuId, item.description, item.price],
+          [orderId, menuRow.id, menuRow.description, menuRow.price],
         );
+        resolvedItems.push({
+          menuId: menuRow.id,
+          description: menuRow.description,
+          price: menuRow.price,
+        });
       }
-      return { ...order, id: orderId };
+      return {
+        ...order,
+        items: resolvedItems,
+        id: orderId,
+      };
     } finally {
       connection.end();
     }
@@ -482,14 +542,40 @@ class DB {
           await connection.query(statement);
         }
 
-        if (!dbExists) {
-          const defaultAdmin = {
-            name: "常用名字",
-            email: "a@jwt.com",
-            password: "admin",
-            roles: [{ role: Role.Admin }],
-          };
-          this.addUser(defaultAdmin);
+        try {
+          await connection.query(
+            `ALTER TABLE user ADD UNIQUE KEY user_email_unique (email)`,
+          );
+        } catch {
+          /* constraint may already exist on older schemas */
+        }
+
+        if (
+          !dbExists &&
+          process.env.SEED_DEFAULT_ADMIN === "true" &&
+          process.env.ADMIN_EMAIL &&
+          process.env.ADMIN_PASSWORD &&
+          process.env.ADMIN_PASSWORD.length >= 8
+        ) {
+          const adminName = process.env.ADMIN_NAME || "Admin";
+          const adminEmail = process.env.ADMIN_EMAIL;
+          const hashedPassword = await bcrypt.hash(
+            process.env.ADMIN_PASSWORD,
+            10,
+          );
+          const [insertHeader] = await connection.execute(
+            `INSERT INTO user (name, email, password) VALUES (?, ?, ?)`,
+            [adminName, adminEmail, hashedPassword],
+          );
+          const userId = insertHeader.insertId;
+          await connection.execute(
+            `INSERT INTO userRole (userId, role, objectId) VALUES (?, ?, ?)`,
+            [userId, Role.Admin, 0],
+          );
+        } else if (!dbExists) {
+          console.log(
+            "No default admin seeded (set SEED_DEFAULT_ADMIN=true and ADMIN_EMAIL / ADMIN_PASSWORD with length >= 8)",
+          );
         }
       } finally {
         connection.end();

@@ -9,6 +9,7 @@ function makeTestDeps(overrides = {}) {
     loginUser: jest.fn(),
     logoutUser: jest.fn(),
     getUser: jest.fn(),
+    getUserById: jest.fn(),
     addUser: jest.fn(),
     updateUser: jest.fn(),
     getFranchise: jest.fn(),
