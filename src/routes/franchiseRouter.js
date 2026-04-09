@@ -1,5 +1,9 @@
 const express = require("express");
 const { StatusCodeError, asyncHandler } = require("../endpointHelper.js");
+const {
+  parseFranchisePage,
+  parseFranchiseLimit,
+} = require("../util/pagination.js");
 const docs = [
   {
     method: "GET",
@@ -82,8 +86,8 @@ function createFranchiseRouter(deps) {
     asyncHandler(async (req, res) => {
       const [franchises, more] = await db.getFranchises(
         req.user,
-        req.query.page,
-        req.query.limit,
+        parseFranchisePage(req.query.page),
+        parseFranchiseLimit(req.query.limit),
         req.query.name,
       );
       res.json({ franchises, more });

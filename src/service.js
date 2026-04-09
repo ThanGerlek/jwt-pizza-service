@@ -54,8 +54,9 @@ function createCorsMiddleware() {
         res.setHeader("Access-Control-Allow-Credentials", "true");
       }
     } else {
-      res.setHeader("Access-Control-Allow-Origin", origin || "*");
-      res.setHeader("Access-Control-Allow-Credentials", "true");
+      // Do not reflect arbitrary Origins with credentials (unsafe). Bearer APIs
+      // typically need * without credentials, or an explicit allowlist above.
+      res.setHeader("Access-Control-Allow-Origin", "*");
     }
 
     if (req.method === "OPTIONS") {

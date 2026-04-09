@@ -1,5 +1,6 @@
 const express = require("express");
 const { asyncHandler, StatusCodeError } = require("../endpointHelper.js");
+const { parseOrderPage } = require("../util/pagination.js");
 // const { sanitizeFactoryReportUrl } = require("../util/factoryUrl.ts");
 const docs = [
   {
@@ -112,7 +113,7 @@ function createOrderRouter(deps) {
     "/",
     authenticateToken,
     asyncHandler(async (req, res) => {
-      res.json(await db.getOrders(req.user, req.query.page));
+      res.json(await db.getOrders(req.user, parseOrderPage(req.query.page)));
     }),
   );
 

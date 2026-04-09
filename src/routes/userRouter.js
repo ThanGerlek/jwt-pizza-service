@@ -59,8 +59,12 @@ function createUserRouter(deps) {
       }
 
       const updatedUser = await db.updateUser(userId, name, email, password);
-      const auth = await setAuth(updatedUser);
-      res.json({ user: updatedUser, token: auth });
+      if (user.id === userId) {
+        const auth = await setAuth(updatedUser);
+        res.json({ user: updatedUser, token: auth });
+      } else {
+        res.json({ user: updatedUser });
+      }
     }),
   );
 

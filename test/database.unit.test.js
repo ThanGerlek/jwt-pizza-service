@@ -232,7 +232,7 @@ describe("Database Unit Tests", () => {
         expect(mockConnection.end).toHaveBeenCalled();
       });
 
-      test("maps duplicate email to 409", async () => {
+      test("maps duplicate email to 404", async () => {
         const newUser = {
           name: "Dup",
           email: "dup@test.com",
@@ -245,8 +245,8 @@ describe("Database Unit Tests", () => {
         mockConnection.execute.mockRejectedValueOnce(dup);
 
         await expect(originalDB.addUser(newUser)).rejects.toMatchObject({
-          statusCode: 409,
-          message: "email already registered",
+          statusCode: 404,
+          message: "unable to register",
         });
       });
 
@@ -321,16 +321,16 @@ describe("Database Unit Tests", () => {
         expect(mockConnection.end).toHaveBeenCalled();
       });
 
-      test("throws 404 when user not found", async () => {
+      test("throws 401 when user not found", async () => {
         mockConnection.execute.mockResolvedValueOnce([[]]); // No user found
 
         await expect(
           originalDB.getUser("notfound@test.com", "password"),
-        ).rejects.toThrow(new StatusCodeError("unknown user", 404));
+        ).rejects.toThrow(new StatusCodeError("invalid credentials", 401));
         expect(mockConnection.end).toHaveBeenCalled();
       });
 
-      test("throws 404 when password mismatch", async () => {
+      test("throws 401 when password mismatch", async () => {
         const mockUser = {
           id: 1,
           name: "Test",
@@ -342,7 +342,7 @@ describe("Database Unit Tests", () => {
 
         await expect(
           originalDB.getUser("test@test.com", "wrongPassword"),
-        ).rejects.toThrow(new StatusCodeError("unknown user", 404));
+        ).rejects.toThrow(new StatusCodeError("invalid credentials", 401));
         expect(mockConnection.end).toHaveBeenCalled();
       });
 
@@ -587,8 +587,8 @@ describe("Database Unit Tests", () => {
           page: 1,
         });
         expect(mockConnection.execute).toHaveBeenCalledWith(
-          "SELECT id, franchiseId, storeId, date FROM dinerOrder WHERE dinerId=? LIMIT 0,10",
-          [5],
+          "SELECT id, franchiseId, storeId, date FROM dinerOrder WHERE dinerId=? LIMIT ? OFFSET ?",
+          [5, 10, 0],
         );
         expect(mockConnection.end).toHaveBeenCalled();
       });
@@ -601,8 +601,8 @@ describe("Database Unit Tests", () => {
 
         expect(result.page).toBe(2);
         expect(mockConnection.execute).toHaveBeenCalledWith(
-          expect.stringContaining("LIMIT 10,10"),
-          [5],
+          "SELECT id, franchiseId, storeId, date FROM dinerOrder WHERE dinerId=? LIMIT ? OFFSET ?",
+          [5, 10, 10],
         );
         expect(mockConnection.end).toHaveBeenCalled();
       });
@@ -845,8 +845,8 @@ describe("Database Unit Tests", () => {
         expect(franchises).toHaveLength(2);
         expect(more).toBe(false);
         expect(mockConnection.execute).toHaveBeenCalledWith(
-          "SELECT id, name FROM franchise WHERE name LIKE ? LIMIT 11 OFFSET 0",
-          ["%"],
+          "SELECT id, name FROM franchise WHERE name LIKE ? LIMIT ? OFFSET ?",
+          ["%", 11, 0],
         );
         expect(mockConnection.end).toHaveBeenCalled();
       });
@@ -857,8 +857,8 @@ describe("Database Unit Tests", () => {
         await originalDB.getFranchises(null, 0, 10, "pizza*");
 
         expect(mockConnection.execute).toHaveBeenCalledWith(
-          expect.any(String),
-          ["pizza%"],
+          "SELECT id, name FROM franchise WHERE name LIKE ? LIMIT ? OFFSET ?",
+          ["pizza%", 11, 0],
         );
         expect(mockConnection.end).toHaveBeenCalled();
       });
@@ -975,11 +975,26 @@ describe("Database Unit Tests", () => {
           "SELECT objectId FROM userRole WHERE role='franchisee' AND userId=?",
           [5],
         );
+        expect(mockConnection.execute).toHaveBeenCalledWith(
+          "SELECT id, name FROM franchise WHERE id IN (?, ?)",
+          [1, 2],
+        );
         expect(mockConnection.end).toHaveBeenCalledTimes(3); // Once in getUserFranchises, twice in getFranchise
       });
 
       test("returns empty array when user has no franchises", async () => {
         mockConnection.execute.mockResolvedValueOnce([[]]); // No franchise IDs
+
+        const result = await originalDB.getUserFranchises(5);
+
+        expect(result).toEqual([]);
+        expect(mockConnection.end).toHaveBeenCalled();
+      });
+
+      test("returns empty array when franchise ids are not valid integers", async () => {
+        mockConnection.execute.mockResolvedValueOnce([
+          [{ objectId: "x" }, { objectId: null }],
+        ]);
 
         const result = await originalDB.getUserFranchises(5);
 
@@ -1164,12 +1179,12 @@ describe("Database Unit Tests", () => {
           mockConnection,
           "name",
           "testValue",
-          "testTable",
+          "franchise",
         );
 
         expect(result).toBe(42);
         expect(mockConnection.execute).toHaveBeenCalledWith(
-          "SELECT id FROM testTable WHERE name=?",
+          "SELECT id FROM franchise WHERE name=?",
           ["testValue"],
         );
       });
@@ -1178,8 +1193,15 @@ describe("Database Unit Tests", () => {
         mockConnection.execute.mockResolvedValueOnce([[]]);
 
         await expect(
-          originalDB.getID(mockConnection, "name", "notFound", "testTable"),
+          originalDB.getID(mockConnection, "name", "notFound", "franchise"),
         ).rejects.toThrow("No ID found");
+      });
+
+      test("rejects disallowed table or column", async () => {
+        await expect(
+          originalDB.getID(mockConnection, "email", "x", "user"),
+        ).rejects.toThrow("Invalid table or column for getID");
+        expect(mockConnection.execute).not.toHaveBeenCalled();
       });
     });
 

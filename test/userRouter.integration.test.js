@@ -54,4 +54,24 @@ describe("user routes", () => {
     expect(res.body.user).toMatchObject({ id: userData.id, name: updatedName });
     expect(res.body.token).toBe("tok.sig.sgn");
   });
+
+  test("PUT admin updating another user returns user without new token", async () => {
+    mockLoginAsAdmin();
+    const otherUser = {
+      id: 99,
+      name: "Other",
+      email: "other@test.com",
+      roles: [{ role: "diner" }],
+    };
+    deps.db.updateUser.mockResolvedValueOnce(otherUser);
+
+    const res = await request(app)
+      .put("/api/user/99")
+      .set("Authorization", "Bearer tok.sig.sgn")
+      .send({ name: "Other" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user).toMatchObject({ id: 99, name: "Other" });
+    expect(res.body).not.toHaveProperty("token");
+  });
 });

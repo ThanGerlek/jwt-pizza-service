@@ -206,7 +206,43 @@ describe("Service Integration Tests - Edge Cases", () => {
   // CORS Headers
   // ====================================================================
   describe("CORS headers", () => {
-    test("sets CORS headers on requests", async () => {
+    const prevCors = process.env.CORS_ALLOWED_ORIGINS;
+
+    afterEach(() => {
+      if (prevCors === undefined) {
+        delete process.env.CORS_ALLOWED_ORIGINS;
+      } else {
+        process.env.CORS_ALLOWED_ORIGINS = prevCors;
+      }
+    });
+
+    test("without allowlist: uses * and does not send credentials", async () => {
+      delete process.env.CORS_ALLOWED_ORIGINS;
+
+      const res = await request(app)
+        .get("/")
+        .set("Origin", "http://localhost:3000");
+
+      expect(res.headers["access-control-allow-origin"]).toBe("*");
+      expect(res.headers["access-control-allow-credentials"]).toBeUndefined();
+      expect(res.headers["access-control-allow-methods"]).toBe(
+        "GET, POST, PUT, DELETE, OPTIONS",
+      );
+      expect(res.headers["access-control-allow-headers"]).toBe(
+        "Content-Type, Authorization",
+      );
+    });
+
+    test("sets default origin to * when no origin header", async () => {
+      delete process.env.CORS_ALLOWED_ORIGINS;
+      const res = await request(app).get("/");
+
+      expect(res.headers["access-control-allow-origin"]).toBe("*");
+    });
+
+    test("with allowlist: echoes Origin and sets credentials for listed origin", async () => {
+      process.env.CORS_ALLOWED_ORIGINS = "http://localhost:3000";
+
       const res = await request(app)
         .get("/")
         .set("Origin", "http://localhost:3000");
@@ -214,22 +250,12 @@ describe("Service Integration Tests - Edge Cases", () => {
       expect(res.headers["access-control-allow-origin"]).toBe(
         "http://localhost:3000",
       );
-      expect(res.headers["access-control-allow-methods"]).toBe(
-        "GET, POST, PUT, DELETE, OPTIONS",
-      );
-      expect(res.headers["access-control-allow-headers"]).toBe(
-        "Content-Type, Authorization",
-      );
       expect(res.headers["access-control-allow-credentials"]).toBe("true");
     });
 
-    test("sets default origin to * when no origin header", async () => {
-      const res = await request(app).get("/");
+    test("handles preflight OPTIONS when origin is allowlisted", async () => {
+      process.env.CORS_ALLOWED_ORIGINS = "http://localhost:3000";
 
-      expect(res.headers["access-control-allow-origin"]).toBe("*");
-    });
-
-    test("handles preflight OPTIONS requests", async () => {
       const res = await request(app)
         .options("/api/auth")
         .set("Origin", "http://localhost:3000");

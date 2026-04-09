@@ -12,7 +12,7 @@ is_port_in_use() {
   lsof -iTCP:"$1" -sTCP:LISTEN -Pn >/dev/null 2>&1
 }
 
-MAX_TRIES=10
+MAX_TRIES=30
 TRIES=0
 ORIGINAL_PORT="$PORT"
 

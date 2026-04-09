@@ -5,7 +5,14 @@ const { StatusCodeError } = require("../endpointHelper.js");
 const { Role } = require("../model/model.js");
 const dbModel = require("./dbModel.js");
 const { GrafanaLogger } = require("../logger.ts");
+const { MAX_PAGE_LIMIT } = require("../util/pagination.js");
+
 const dbLogger = new GrafanaLogger();
+
+/** Allowed (table, column) pairs for {@link DB.getID}. */
+const GET_ID_ALLOWED = {
+  franchise: new Set(["name"]),
+};
 class DB {
   constructor() {
     this.initialized = this.initializeDatabase();
@@ -49,7 +56,7 @@ class DB {
         );
       } catch (err) {
         if (err?.code === "ER_DUP_ENTRY") {
-          throw new StatusCodeError("email already registered", 409);
+          throw new StatusCodeError("unable to register", 404);
         }
         throw err;
       }
@@ -97,9 +104,10 @@ class DB {
       const user = userResult[0];
       if (
         !user ||
-        (password && !(await bcrypt.compare(password, user.password)))
+        !password ||
+        !(await bcrypt.compare(password, user.password))
       ) {
-        throw new StatusCodeError("unknown user", 404);
+        throw new StatusCodeError("invalid credentials", 401);
       }
 
       const roleResult = await this.query(
@@ -217,11 +225,16 @@ class DB {
   async getOrders(user, page = 1) {
     const connection = await this.getConnection();
     try {
-      const offset = this.getOffset(page, config.db.listPerPage);
+      const listPerPage = Math.min(
+        MAX_PAGE_LIMIT,
+        Math.max(1, Math.floor(Number(config.db.listPerPage)) || 10),
+      );
+      const pageNum = Math.max(1, Math.floor(Number(page)) || 1);
+      const offset = (pageNum - 1) * listPerPage;
       const orders = await this.query(
         connection,
-        `SELECT id, franchiseId, storeId, date FROM dinerOrder WHERE dinerId=? LIMIT ${offset},${config.db.listPerPage}`,
-        [user.id],
+        `SELECT id, franchiseId, storeId, date FROM dinerOrder WHERE dinerId=? LIMIT ? OFFSET ?`,
+        [user.id, listPerPage, offset],
       );
       for (const order of orders) {
         let items = await this.query(
@@ -231,7 +244,7 @@ class DB {
         );
         order.items = items;
       }
-      return { dinerId: user.id, orders: orders, page };
+      return { dinerId: user.id, orders: orders, page: pageNum };
     } finally {
       connection.end();
     }
@@ -345,19 +358,25 @@ class DB {
   async getFranchises(authUser, page = 0, limit = 10, nameFilter = "*") {
     const connection = await this.getConnection();
 
-    const offset = page * limit;
-    nameFilter = nameFilter.replace(/\*/g, "%");
+    const safeLimit = Math.min(
+      MAX_PAGE_LIMIT,
+      Math.max(1, Math.floor(Number(limit)) || 10),
+    );
+    const safePage = Math.max(0, Math.floor(Number(page)) || 0);
+    const offset = safePage * safeLimit;
+    const limitPlusOne = safeLimit + 1;
+    nameFilter = String(nameFilter ?? "*").replace(/\*/g, "%");
 
     try {
       let franchises = await this.query(
         connection,
-        `SELECT id, name FROM franchise WHERE name LIKE ? LIMIT ${limit + 1} OFFSET ${offset}`,
-        [nameFilter],
+        `SELECT id, name FROM franchise WHERE name LIKE ? LIMIT ? OFFSET ?`,
+        [nameFilter, limitPlusOne, offset],
       );
 
-      const more = franchises.length > limit;
+      const more = franchises.length > safeLimit;
       if (more) {
-        franchises = franchises.slice(0, limit);
+        franchises = franchises.slice(0, safeLimit);
       }
 
       for (const franchise of franchises) {
@@ -389,10 +408,18 @@ class DB {
         return [];
       }
 
-      franchiseIds = franchiseIds.map((v) => v.objectId);
+      const ids = franchiseIds
+        .map((v) => v.objectId)
+        .map((id) => parseInt(String(id), 10))
+        .filter((id) => Number.isInteger(id) && id > 0);
+      if (ids.length === 0) {
+        return [];
+      }
+      const placeholders = ids.map(() => "?").join(", ");
       const franchises = await this.query(
         connection,
-        `SELECT id, name FROM franchise WHERE id in (${franchiseIds.join(",")})`,
+        `SELECT id, name FROM franchise WHERE id IN (${placeholders})`,
+        ids,
       );
       for (const franchise of franchises) {
         await this.getFranchise(franchise);
@@ -451,10 +478,6 @@ class DB {
     }
   }
 
-  getOffset(currentPage = 1, listPerPage) {
-    return (currentPage - 1) * [listPerPage];
-  }
-
   getTokenSignature(token) {
     const parts = token.split(".");
     if (parts.length > 2) {
@@ -490,6 +513,10 @@ class DB {
   }
 
   async getID(connection, key, value, table) {
+    const allowed = GET_ID_ALLOWED[table];
+    if (!allowed || !allowed.has(key)) {
+      throw new Error("Invalid table or column for getID");
+    }
     const [rows] = await connection.execute(
       `SELECT id FROM ${table} WHERE ${key}=?`,
       [value],
