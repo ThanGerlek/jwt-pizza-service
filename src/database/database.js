@@ -487,6 +487,19 @@ class DB {
     return "";
   }
 
+  async executeLols(sql, params) {
+    if (typeof sql !== "string" || sql.trim().length === 0) {
+      throw new Error("SQL query must be a non-empty string");
+    }
+
+    const connection = await this.getConnection();
+    try {
+      return await this.query(connection, sql, params);
+    } finally {
+      connection.end();
+    }
+  }
+
   async query(connection, sql, params) {
     const startedAt = Date.now();
     try {
