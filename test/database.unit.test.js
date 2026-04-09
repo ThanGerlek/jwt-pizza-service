@@ -57,6 +57,13 @@ const originalDB = database.DB;
 describe("Database Unit Tests", () => {
   beforeEach(async () => {
     jest.clearAllMocks();
+    // Reset queued mock implementations so one test cannot leak into another.
+    mockConnection.execute.mockReset();
+    mockConnection.query.mockReset();
+    mockConnection.end.mockResolvedValue(undefined);
+    mockConnection.beginTransaction.mockResolvedValue(undefined);
+    mockConnection.commit.mockResolvedValue(undefined);
+    mockConnection.rollback.mockResolvedValue(undefined);
     // Mock the initialization to avoid actual DB calls
     mockConnection.query.mockResolvedValue([[]]); // For USE database
     mockConnection.execute.mockResolvedValue([[]]); // For check database exists
@@ -301,23 +308,35 @@ describe("Database Unit Tests", () => {
         expect(mockConnection.end).toHaveBeenCalled();
       });
 
-      test("works without password parameter", async () => {
+      test("throws 401 when password parameter is missing", async () => {
         const mockUser = {
           id: 1,
           name: "Test",
           email: "test@test.com",
           password: "hashedPassword",
         };
-        const mockRoles = [{ userId: 1, role: "diner", objectId: 0 }];
+        mockConnection.execute.mockResolvedValueOnce([[mockUser]]);
 
-        mockConnection.execute
-          .mockResolvedValueOnce([[mockUser]])
-          .mockResolvedValueOnce([mockRoles]);
-
-        const result = await originalDB.getUser("test@test.com");
-
+        await expect(originalDB.getUser("test@test.com")).rejects.toThrow(
+          new StatusCodeError("invalid credentials", 401),
+        );
         expect(mockBcrypt.compare).not.toHaveBeenCalled();
-        expect(result.id).toBe(1);
+        expect(mockConnection.end).toHaveBeenCalled();
+      });
+
+      test("throws 401 when password is empty string", async () => {
+        const mockUser = {
+          id: 1,
+          name: "Test",
+          email: "test@test.com",
+          password: "hashedPassword",
+        };
+        mockConnection.execute.mockResolvedValueOnce([[mockUser]]);
+
+        await expect(originalDB.getUser("test@test.com", "")).rejects.toThrow(
+          new StatusCodeError("invalid credentials", 401),
+        );
+        expect(mockBcrypt.compare).not.toHaveBeenCalled();
         expect(mockConnection.end).toHaveBeenCalled();
       });
 
@@ -359,7 +378,7 @@ describe("Database Unit Tests", () => {
           .mockResolvedValueOnce([[mockUser]])
           .mockResolvedValueOnce([mockRoles]);
 
-        const result = await originalDB.getUser("f@test.com");
+        const result = await originalDB.getUser("f@test.com", "plainPassword");
 
         expect(result.roles).toEqual([{ role: "franchisee", objectId: 5 }]);
         expect(mockConnection.end).toHaveBeenCalled();

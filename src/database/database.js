@@ -104,7 +104,8 @@ class DB {
       const user = userResult[0];
       if (
         !user ||
-        !password ||
+        typeof password !== "string" ||
+        password.length === 0 ||
         !(await bcrypt.compare(password, user.password))
       ) {
         throw new StatusCodeError("invalid credentials", 401);
