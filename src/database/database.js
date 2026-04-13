@@ -371,8 +371,8 @@ class DB {
     try {
       let franchises = await this.query(
         connection,
-        `SELECT id, name FROM franchise WHERE name LIKE ? LIMIT ? OFFSET ?`,
-        [nameFilter, limitPlusOne, offset],
+        `SELECT id, name FROM franchise WHERE name LIKE ? LIMIT ${limitPlusOne} OFFSET ${offset}`,
+        [nameFilter],
       );
 
       const more = franchises.length > safeLimit;

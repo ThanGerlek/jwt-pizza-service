@@ -864,8 +864,8 @@ describe("Database Unit Tests", () => {
         expect(franchises).toHaveLength(2);
         expect(more).toBe(false);
         expect(mockConnection.execute).toHaveBeenCalledWith(
-          "SELECT id, name FROM franchise WHERE name LIKE ? LIMIT ? OFFSET ?",
-          ["%", 11, 0],
+          "SELECT id, name FROM franchise WHERE name LIKE ? LIMIT 11 OFFSET 0",
+          ["%"],
         );
         expect(mockConnection.end).toHaveBeenCalled();
       });
@@ -876,8 +876,8 @@ describe("Database Unit Tests", () => {
         await originalDB.getFranchises(null, 0, 10, "pizza*");
 
         expect(mockConnection.execute).toHaveBeenCalledWith(
-          "SELECT id, name FROM franchise WHERE name LIKE ? LIMIT ? OFFSET ?",
-          ["pizza%", 11, 0],
+          "SELECT id, name FROM franchise WHERE name LIKE ? LIMIT 11 OFFSET 0",
+          ["pizza%"],
         );
         expect(mockConnection.end).toHaveBeenCalled();
       });
