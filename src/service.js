@@ -110,10 +110,16 @@ function createApp(deps) {
     standardHeaders: true,
     legacyHeaders: false,
   });
+  // const isAuthRateLimitDisabled = process.env.AUTH_RATE_LIMIT_DISABLED === "true";
+  const isAuthRateLimitDisabled = true;
 
   const apiRouter = express.Router();
   app.use("/api", apiRouter);
-  apiRouter.use("/auth", authLimiter, auth.authRouter);
+  apiRouter.use(
+    "/auth",
+    ...(isAuthRateLimitDisabled ? [] : [authLimiter]),
+    auth.authRouter,
+  );
   apiRouter.use("/user", userRouter);
   apiRouter.use("/order", orderRouter);
   apiRouter.use("/franchise", franchiseRouter);
